@@ -143,8 +143,8 @@ HTML_TEMPLATE = r"""<!doctype html>
       --success: #28745f;
       --warning: #8a5d00;
       --band-1: rgba(207, 184, 124, 0.26);
-      --band-2: rgba(188, 188, 188, 0.24);
-      --band-3: rgba(67, 67, 67, 0.10);
+      --band-2: rgba(207, 184, 124, 0.26);
+      --band-3: rgba(207, 184, 124, 0.26);
       font-family: Inter, Segoe UI, Roboto, Arial, sans-serif;
       color: var(--cu-black);
       background: var(--canvas);
@@ -348,8 +348,13 @@ HTML_TEMPLATE = r"""<!doctype html>
       margin-bottom: 10px;
     }
 
+    .line-head {
+      grid-template-columns: 1fr minmax(160px, 220px);
+      align-items: end;
+    }
+
     .flow-head {
-      grid-template-columns: 1fr minmax(190px, 280px);
+      grid-template-columns: 1fr minmax(190px, 280px) minmax(160px, 220px);
       align-items: end;
     }
 
@@ -544,6 +549,7 @@ HTML_TEMPLATE = r"""<!doctype html>
       }
 
       .toolbar,
+      .line-head,
       .flow-head {
         grid-template-columns: 1fr;
       }
@@ -611,15 +617,23 @@ HTML_TEMPLATE = r"""<!doctype html>
     <section aria-labelledby="cellSection">
       <div class="section-head">
         <h2 id="cellSection">Cell Concentration and Viability Data</h2>
-        <p class="section-note">Gray lines show historical batches. The black line highlights the selected batch. Gold shows the historical average, with shaded +/- 1SD, +/- 2SD, and +/- 3SD ranges by day.</p>
       </div>
+      <p class="section-note">Gray lines show historical batches. The black line highlights the selected batch. Gold shows the historical average. Each line chart has its own SD range control for the shaded standard-deviation range and matching dotted limits.</p>
       <div class="grid-2">
         <article class="panel">
-          <div class="panel-head">
+          <div class="panel-head line-head">
             <div>
               <h3>Live Cell Concentration vs Day</h3>
               <div class="chart-meta" id="liveMeta"></div>
             </div>
+            <label for="liveSdSelect">SD range
+              <select id="liveSdSelect">
+                <option value="0">+/- SD Off</option>
+                <option value="1">+/- 1SD</option>
+                <option value="2">+/- 2SD</option>
+                <option value="3">+/- 3SD</option>
+              </select>
+            </label>
           </div>
           <div class="chart" id="liveChart"></div>
           <div class="legend" aria-label="Live concentration legend">
@@ -632,11 +646,19 @@ HTML_TEMPLATE = r"""<!doctype html>
         </article>
 
         <article class="panel">
-          <div class="panel-head">
+          <div class="panel-head line-head">
             <div>
               <h3>Viability vs Day</h3>
               <div class="chart-meta" id="viabilityMeta"></div>
             </div>
+            <label for="viabilitySdSelect">SD range
+              <select id="viabilitySdSelect">
+                <option value="0">+/- SD Off</option>
+                <option value="1">+/- 1SD</option>
+                <option value="2">+/- 2SD</option>
+                <option value="3">+/- 3SD</option>
+              </select>
+            </label>
           </div>
           <div class="chart" id="viabilityChart"></div>
           <div class="legend" aria-label="Viability legend">
@@ -653,7 +675,7 @@ HTML_TEMPLATE = r"""<!doctype html>
     <section aria-labelledby="flowSection">
       <div class="section-head">
         <h2 id="flowSection">Flow Data</h2>
-        <p class="section-note">Each chart shows historical batch bars for the selected QC-4 or QC-5 flow measure and the highlighted batch when available. A labeled gold line marks the historical average, and dotted horizontal references show +/- 1SD, +/- 2SD, and +/- 3SD around that average.</p>
+        <p class="section-note">Each chart shows historical batch bars for the selected QC-4 or QC-5 flow measure and the highlighted batch when available. A labeled gold line marks the historical average. Each flow chart has its own SD range control for the dotted horizontal references around that average.</p>
       </div>
       <div class="grid-3">
         <article class="panel">
@@ -664,6 +686,14 @@ HTML_TEMPLATE = r"""<!doctype html>
             </div>
             <label for="qc4Metric">Measure
               <select id="qc4Metric"></select>
+            </label>
+            <label for="qc4SdSelect">SD range
+              <select id="qc4SdSelect">
+                <option value="0">+/- SD Off</option>
+                <option value="1">+/- 1SD</option>
+                <option value="2">+/- 2SD</option>
+                <option value="3">+/- 3SD</option>
+              </select>
             </label>
           </div>
           <div class="chart" id="qc4Chart"></div>
@@ -677,6 +707,14 @@ HTML_TEMPLATE = r"""<!doctype html>
             </div>
             <label for="qc5Metric">Measure
               <select id="qc5Metric"></select>
+            </label>
+            <label for="qc5SdSelect">SD range
+              <select id="qc5SdSelect">
+                <option value="0">+/- SD Off</option>
+                <option value="1">+/- 1SD</option>
+                <option value="2">+/- 2SD</option>
+                <option value="3">+/- 3SD</option>
+              </select>
             </label>
           </div>
           <div class="chart" id="qc5Chart"></div>
@@ -703,10 +741,14 @@ HTML_TEMPLATE = r"""<!doctype html>
       batch: document.getElementById("batchSelect"),
       liveChart: document.getElementById("liveChart"),
       viabilityChart: document.getElementById("viabilityChart"),
+      liveSd: document.getElementById("liveSdSelect"),
+      viabilitySd: document.getElementById("viabilitySdSelect"),
       qc4Chart: document.getElementById("qc4Chart"),
       qc5Chart: document.getElementById("qc5Chart"),
       qc4Metric: document.getElementById("qc4Metric"),
-      qc5Metric: document.getElementById("qc5Metric")
+      qc5Metric: document.getElementById("qc5Metric"),
+      qc4Sd: document.getElementById("qc4SdSelect"),
+      qc5Sd: document.getElementById("qc5SdSelect")
     };
 
     const fmtInt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
@@ -762,7 +804,7 @@ HTML_TEMPLATE = r"""<!doctype html>
         refreshBatchOptions();
         render();
       });
-      [els.batch, els.qc4Metric, els.qc5Metric].forEach(control => {
+      [els.batch, els.liveSd, els.viabilitySd, els.qc4Metric, els.qc5Metric, els.qc4Sd, els.qc5Sd].forEach(control => {
         control.addEventListener("change", render);
       });
 
@@ -828,6 +870,10 @@ HTML_TEMPLATE = r"""<!doctype html>
 
     function selectedBatch() {
       return els.batch.value || "";
+    }
+
+    function selectedLineSdMultiplier(select) {
+      return Number(select.value);
     }
 
     function roundDay(day) {
@@ -929,12 +975,14 @@ HTML_TEMPLATE = r"""<!doctype html>
       return points.map((point, index) => `${index ? "L" : "M"}${x(point.day).toFixed(2)},${y(point.value).toFixed(2)}`).join(" ");
     }
 
-    function linePath(points, getValue, x, y, skipBelowZero = false) {
+    function linePath(points, getValue, x, y, options = {}) {
       let path = "";
       let drawing = false;
+      const skipBelowZero = Boolean(options.skipBelowZero);
+      const maxValue = Number.isFinite(options.maxValue) ? options.maxValue : null;
       points.forEach(point => {
         const value = getValue(point);
-        if (!Number.isFinite(value) || (skipBelowZero && value < 0)) {
+        if (!Number.isFinite(value) || (skipBelowZero && value < 0) || (maxValue !== null && value > maxValue)) {
           drawing = false;
           return;
         }
@@ -944,10 +992,14 @@ HTML_TEMPLATE = r"""<!doctype html>
       return path.trim();
     }
 
-    function bandPath(stats, multiplier, x, y) {
+    function bandPath(stats, multiplier, x, y, options = {}) {
+      const maxValue = Number.isFinite(options.maxValue) ? options.maxValue : null;
       const upper = stats
         .filter(point => Number.isFinite(point.mean))
-        .map(point => ({ day: point.day, value: point.mean + point.sd * multiplier }));
+        .map(point => {
+          const value = point.mean + point.sd * multiplier;
+          return { day: point.day, value: maxValue === null ? value : Math.min(maxValue, value) };
+        });
       const lower = stats
         .filter(point => Number.isFinite(point.mean))
         .map(point => ({ day: point.day, value: Math.max(0, point.mean - point.sd * multiplier) }))
@@ -960,22 +1012,34 @@ HTML_TEMPLATE = r"""<!doctype html>
       container.innerHTML = `<div class="empty-state">${message}</div>`;
     }
 
-    function renderLineChart(container, metaId, title, category, unit) {
+    function renderLineChart(container, metaId, title, category, unit, sdSelect) {
       const { rows, selectedPoints, historicalSeries, stats } = lineData(category);
       const selected = selectedBatch();
+      const sdMultiplier = selectedLineSdMultiplier(sdSelect);
+      const showSd = sdMultiplier > 0;
+      const maxDisplayValue = unit === "percent" ? 1 : null;
       const historicalCount = new Set(historicalSeries.map(series => series.batch)).size;
       const below = [];
-      stats.forEach(point => {
-        [1, 2, 3].forEach(multiplier => {
-          if (point.mean - point.sd * multiplier < 0) below.push(`${multiplier}SD day ${roundDay(point.day)}`);
+      const above = [];
+      if (showSd) {
+        stats.forEach(point => {
+          if (point.mean - point.sd * sdMultiplier < 0) below.push(`${sdMultiplier}SD day ${roundDay(point.day)}`);
+          if (maxDisplayValue !== null && point.mean + point.sd * sdMultiplier > maxDisplayValue) {
+            above.push(`${sdMultiplier}SD day ${roundDay(point.day)}`);
+          }
         });
-      });
+      }
 
       document.getElementById(metaId).innerHTML = [
         `<span class="pill">${rows.length} source rows</span>`,
         `<span class="pill">${historicalCount} historical batches</span>`,
         selected ? `<span class="pill">Highlighted ${selected}</span>` : `<span class="pill">No batch excluded</span>`,
-        below.length ? `<span class="pill">${below.length} lower SD limits omitted below zero</span>` : `<span class="pill">No below-zero SD limits</span>`
+        showSd
+          ? (below.length ? `<span class="pill">${below.length} lower SD limits omitted below zero</span>` : `<span class="pill">No below-zero SD limits</span>`)
+          : `<span class="pill">SD guides off</span>`,
+        ...(showSd && maxDisplayValue !== null
+          ? [above.length ? `<span class="pill">${above.length} upper SD limits omitted above 100%</span>` : `<span class="pill">No above-100% SD limits</span>`]
+          : [])
       ].join("");
 
       if (!rows.length || (!historicalSeries.length && !selectedPoints.length)) {
@@ -995,11 +1059,16 @@ HTML_TEMPLATE = r"""<!doctype html>
       ])].sort((a, b) => a - b);
       const minDay = Math.min(...allDays);
       const maxDay = Math.max(...allDays);
-      const statMax = Math.max(0, ...stats.map(point => point.mean + point.sd * 3).filter(Number.isFinite));
-      const valueMax = Math.max(0, ...rows.map(row => row.value).filter(Number.isFinite), statMax);
-      const yMax = valueMax === 0 ? 1 : valueMax * 1.08;
+      const upper3SdMax = Math.max(0, ...stats.map(point => point.mean + point.sd * 3).filter(Number.isFinite));
+      const selectedMax = Math.max(0, ...selectedPoints.map(point => point.value).filter(Number.isFinite));
+      const fallbackValueMax = Math.max(0, ...rows.map(row => row.value).filter(Number.isFinite));
+      const axisMax = Math.max(upper3SdMax, selectedMax);
+      const yMax = maxDisplayValue !== null ? maxDisplayValue : axisMax > 0 ? axisMax * 1.04 : fallbackValueMax > 0 ? fallbackValueMax * 1.04 : 1;
       const x = day => margin.left + ((day - minDay) / Math.max(1, maxDay - minDay)) * plotW;
-      const y = value => margin.top + plotH - (value / yMax) * plotH;
+      const y = value => {
+        const bounded = Math.min(yMax, Math.max(0, value));
+        return margin.top + plotH - (bounded / yMax) * plotH;
+      };
       const yTicks = 5;
 
       const svg = svgEl("svg", { viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": title });
@@ -1024,10 +1093,10 @@ HTML_TEMPLATE = r"""<!doctype html>
       svg.appendChild(svgEl("line", { x1: margin.left, x2: width - margin.right, y1: height - margin.bottom, y2: height - margin.bottom, class: "axis-line" }));
       svg.appendChild(svgEl("line", { x1: margin.left, x2: margin.left, y1: margin.top, y2: height - margin.bottom, class: "axis-line" }));
 
-      [3, 2, 1].forEach(multiplier => {
-        const path = bandPath(stats, multiplier, x, y);
-        if (path) svg.appendChild(svgEl("path", { d: path, fill: `var(--band-${multiplier})`, stroke: "none" }));
-      });
+      if (showSd) {
+        const sdBand = bandPath(stats, sdMultiplier, x, y, { maxValue: maxDisplayValue });
+        if (sdBand) svg.appendChild(svgEl("path", { d: sdBand, fill: `var(--band-${sdMultiplier})`, stroke: "none" }));
+      }
 
       historicalSeries.forEach(series => {
         if (series.points.length < 2) return;
@@ -1036,12 +1105,12 @@ HTML_TEMPLATE = r"""<!doctype html>
         svg.appendChild(path);
       });
 
-      [1, 2, 3].forEach(multiplier => {
-        const upper = linePath(stats, point => point.mean + point.sd * multiplier, x, y);
+      if (showSd) {
+        const upper = linePath(stats, point => point.mean + point.sd * sdMultiplier, x, y, { maxValue: maxDisplayValue });
         if (upper) svg.appendChild(svgEl("path", { d: upper, class: "sd-line" }));
-        const lower = linePath(stats, point => point.mean - point.sd * multiplier, x, y, true);
+        const lower = linePath(stats, point => point.mean - point.sd * sdMultiplier, x, y, { skipBelowZero: true, maxValue: maxDisplayValue });
         if (lower) svg.appendChild(svgEl("path", { d: lower, class: "sd-line" }));
-      });
+      }
 
       const avgPath = linePath(stats, point => point.mean, x, y);
       if (avgPath) svg.appendChild(svgEl("path", { d: avgPath, class: "average-line" }));
@@ -1066,15 +1135,19 @@ HTML_TEMPLATE = r"""<!doctype html>
       container.appendChild(svg);
     }
 
-    function renderFlowChart(container, metaId, metric, unit = "percent") {
+    function renderFlowChart(container, metaId, metric, unit = "percent", sdSelect) {
       const selected = selectedBatch();
       const { rows, bars, hist, avg, sd, selectedBar } = flowData(metric);
-      const below = [1, 2, 3].filter(multiplier => Number.isFinite(avg) && avg - sd * multiplier < 0);
+      const sdMultiplier = selectedLineSdMultiplier(sdSelect);
+      const showSd = sdMultiplier > 0;
+      const below = showSd && Number.isFinite(avg) && avg - sd * sdMultiplier < 0 ? [sdMultiplier] : [];
       document.getElementById(metaId).innerHTML = [
         `<span class="pill">${rows.length} source rows</span>`,
         `<span class="pill">${hist.length} historical batches</span>`,
         selectedBar ? `<span class="pill">Highlighted ${selected}</span>` : `<span class="pill">Selected batch not present</span>`,
-        below.length ? `<span class="pill">${below.length} lower SD limits omitted below zero</span>` : `<span class="pill">No below-zero SD limits</span>`
+        showSd
+          ? (below.length ? `<span class="pill">${sdMultiplier}SD lower limit omitted below zero</span>` : `<span class="pill">No below-zero SD limits</span>`)
+          : `<span class="pill">SD guides off</span>`
       ].join("");
 
       if (!metric || !bars.length) {
@@ -1087,7 +1160,7 @@ HTML_TEMPLATE = r"""<!doctype html>
       const margin = { top: 26, right: 26, bottom: 116, left: 58 };
       const plotW = width - margin.left - margin.right;
       const plotH = height - margin.top - margin.bottom;
-      const refMax = Number.isFinite(avg) ? avg + sd * 3 : 0;
+      const refMax = Number.isFinite(avg) ? avg + sd * (showSd ? sdMultiplier : 0) : 0;
       const rawMax = Math.max(0, ...bars.map(bar => bar.value).filter(Number.isFinite), refMax);
       const yMax = unit === "percent" ? Math.min(1, Math.max(0.05, rawMax * 1.14)) : rawMax * 1.1 || 1;
       const step = plotW / Math.max(1, bars.length);
@@ -1105,12 +1178,10 @@ HTML_TEMPLATE = r"""<!doctype html>
         svg.appendChild(label);
       }
 
-      if (Number.isFinite(avg)) {
-        [1, 2, 3].forEach(multiplier => {
-          [avg + sd * multiplier, avg - sd * multiplier].forEach(value => {
-            if (value < 0 || value > yMax) return;
-            svg.appendChild(svgEl("line", { x1: margin.left, x2: width - margin.right, y1: y(value), y2: y(value), class: "sd-line" }));
-          });
+      if (showSd && Number.isFinite(avg)) {
+        [avg + sd * sdMultiplier, avg - sd * sdMultiplier].forEach(value => {
+          if (value < 0 || value > yMax) return;
+          svg.appendChild(svgEl("line", { x1: margin.left, x2: width - margin.right, y1: y(value), y2: y(value), class: "sd-line" }));
         });
       }
 
@@ -1172,10 +1243,10 @@ HTML_TEMPLATE = r"""<!doctype html>
     function render() {
       refreshFlowMetricOptions();
       updateKpis();
-      renderLineChart(els.liveChart, "liveMeta", "Live cell concentration vs day", "Live Cell Concentration", "count");
-      renderLineChart(els.viabilityChart, "viabilityMeta", "Viability vs day", "Viabilities", "percent");
-      renderFlowChart(els.qc4Chart, "qc4Meta", els.qc4Metric.value);
-      renderFlowChart(els.qc5Chart, "qc5Meta", els.qc5Metric.value);
+      renderLineChart(els.liveChart, "liveMeta", "Live cell concentration vs day", "Live Cell Concentration", "count", els.liveSd);
+      renderLineChart(els.viabilityChart, "viabilityMeta", "Viability vs day", "Viabilities", "percent", els.viabilitySd);
+      renderFlowChart(els.qc4Chart, "qc4Meta", els.qc4Metric.value, "percent", els.qc4Sd);
+      renderFlowChart(els.qc5Chart, "qc5Meta", els.qc5Metric.value, "percent", els.qc5Sd);
     }
 
     setupControls();
