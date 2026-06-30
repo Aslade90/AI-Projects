@@ -412,6 +412,10 @@ HTML_TEMPLATE = r"""<!doctype html>
       font-size: 12px;
     }
 
+    .chart-tooltip span {
+      display: block;
+    }
+
     .chart-tooltip[hidden] { display: none; }
 
     svg {
@@ -452,14 +456,18 @@ HTML_TEMPLATE = r"""<!doctype html>
 
     .average-line {
       fill: none;
-      stroke: var(--cu-gold-dark);
-      stroke-width: 3;
+      stroke: var(--cu-black);
+      stroke-width: 2;
     }
 
     .selected-line {
       fill: none;
-      stroke: var(--cu-black);
+      stroke: var(--cu-gold);
       stroke-width: 3.4;
+    }
+
+    .selected-point {
+      cursor: pointer;
     }
 
     .sd-line {
@@ -516,6 +524,7 @@ HTML_TEMPLATE = r"""<!doctype html>
       display: inline-block;
     }
 
+    .swatch.selected { background: var(--cu-gold); }
     .swatch.gold { background: var(--cu-gold-dark); }
     .swatch.gray { background: #9b9b9b; opacity: .55; }
     .swatch.dotted {
@@ -656,7 +665,7 @@ HTML_TEMPLATE = r"""<!doctype html>
       <div class="section-head">
         <h2 id="cellSection">Cell Concentration and Viability Data</h2>
       </div>
-      <p class="section-note">Gray lines show historical batches. The black line highlights the selected batch. Gold shows the historical average. Each line chart has its own SD range control for the shaded standard-deviation range and matching dotted limits.</p>
+      <p class="section-note">Gray lines show historical batches. Gold highlights the selected batch. The thinner black line shows the historical average and sits behind the selected batch. Each line chart has its own SD range control for the shaded standard-deviation range and matching dotted limits.</p>
       <div class="grid-2">
         <article class="panel">
           <div class="panel-head line-head">
@@ -676,8 +685,8 @@ HTML_TEMPLATE = r"""<!doctype html>
           <div class="chart" id="liveChart"></div>
           <div class="legend" aria-label="Live concentration legend">
             <span class="legend-item"><span class="swatch gray"></span> Historical batches</span>
-            <span class="legend-item"><span class="swatch"></span> Selected batch</span>
-            <span class="legend-item"><span class="swatch gold"></span> Historical average</span>
+            <span class="legend-item"><span class="swatch selected"></span> Selected batch</span>
+            <span class="legend-item"><span class="swatch"></span> Historical average</span>
             <span class="legend-item"><span class="swatch band"></span> SD range</span>
             <span class="legend-item"><span class="swatch dotted"></span> SD limit</span>
           </div>
@@ -701,8 +710,8 @@ HTML_TEMPLATE = r"""<!doctype html>
           <div class="chart" id="viabilityChart"></div>
           <div class="legend" aria-label="Viability legend">
             <span class="legend-item"><span class="swatch gray"></span> Historical batches</span>
-            <span class="legend-item"><span class="swatch"></span> Selected batch</span>
-            <span class="legend-item"><span class="swatch gold"></span> Historical average</span>
+            <span class="legend-item"><span class="swatch selected"></span> Selected batch</span>
+            <span class="legend-item"><span class="swatch"></span> Historical average</span>
             <span class="legend-item"><span class="swatch band"></span> SD range</span>
             <span class="legend-item"><span class="swatch dotted"></span> SD limit</span>
           </div>
@@ -926,6 +935,7 @@ HTML_TEMPLATE = r"""<!doctype html>
     function formatValue(value, unit) {
       if (!Number.isFinite(value)) return "-";
       if (unit === "percent") return fmtPct.format(value);
+      if (unit === "scientific") return value.toExponential(2);
       if (Math.abs(value) >= 100000) return fmtShort.format(value);
       return fmtNum.format(value);
     }
@@ -933,6 +943,7 @@ HTML_TEMPLATE = r"""<!doctype html>
     function exactValue(value, unit) {
       if (!Number.isFinite(value)) return "-";
       if (unit === "percent") return fmtPct.format(value);
+      if (unit === "scientific") return value.toExponential(3);
       return fmtInt.format(value);
     }
 
@@ -980,6 +991,23 @@ HTML_TEMPLATE = r"""<!doctype html>
         showChartTooltip(html, bounds.left + bounds.width / 2, bounds.top);
       });
       rect.addEventListener("blur", hideChartTooltip);
+    }
+
+    function attachLinePointTooltip(dot, batch, point, unit) {
+      const value = exactValue(point.value, unit);
+      const day = roundDay(point.day);
+      const label = `${batch} day ${day}: ${value}`;
+      const html = `<strong>${escapeHtml(batch)}</strong><span>Day ${escapeHtml(day)}</span><span>Y value: ${escapeHtml(value)}</span>`;
+      dot.setAttribute("tabindex", "0");
+      dot.setAttribute("aria-label", label);
+      dot.addEventListener("mouseenter", event => showChartTooltip(html, event.clientX, event.clientY));
+      dot.addEventListener("mousemove", event => positionTooltip(event.clientX, event.clientY));
+      dot.addEventListener("mouseleave", hideChartTooltip);
+      dot.addEventListener("focus", () => {
+        const bounds = dot.getBoundingClientRect();
+        showChartTooltip(html, bounds.left + bounds.width / 2, bounds.top);
+      });
+      dot.addEventListener("blur", hideChartTooltip);
     }
 
     function mean(values) {
@@ -1207,8 +1235,9 @@ HTML_TEMPLATE = r"""<!doctype html>
       if (selectedPoints.length) {
         if (selectedPoints.length > 1) svg.appendChild(svgEl("path", { d: pathFrom(selectedPoints, x, y), class: "selected-line" }));
         selectedPoints.forEach(point => {
-          const dot = svgEl("circle", { cx: x(point.day), cy: y(point.value), r: 4.8, fill: "var(--cu-black)", stroke: "#ffffff", "stroke-width": 1.5 });
+          const dot = svgEl("circle", { cx: x(point.day), cy: y(point.value), r: 4.8, fill: "var(--cu-gold)", stroke: "var(--cu-black)", "stroke-width": 1.3, class: "selected-point" });
           dot.appendChild(svgEl("title", {})).textContent = `${selected} day ${roundDay(point.day)}: ${exactValue(point.value, unit)}`;
+          attachLinePointTooltip(dot, selected, point, unit);
           svg.appendChild(dot);
         });
       }
@@ -1333,7 +1362,7 @@ HTML_TEMPLATE = r"""<!doctype html>
     function render() {
       refreshFlowMetricOptions();
       updateKpis();
-      renderLineChart(els.liveChart, "liveMeta", "Live cell concentration vs day", "Live Cell Concentration", "count", els.liveSd);
+      renderLineChart(els.liveChart, "liveMeta", "Live cell concentration vs day", "Live Cell Concentration", "scientific", els.liveSd);
       renderLineChart(els.viabilityChart, "viabilityMeta", "Viability vs day", "Viabilities", "percent", els.viabilitySd);
       renderFlowChart(els.qc4Chart, "qc4Meta", els.qc4Metric.value, "percent", els.qc4Sd);
       renderFlowChart(els.qc5Chart, "qc5Meta", els.qc5Metric.value, "percent", els.qc5Sd);
