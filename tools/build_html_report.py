@@ -391,6 +391,29 @@ HTML_TEMPLATE = r"""<!doctype html>
       overflow: hidden;
     }
 
+    .chart-tooltip {
+      position: fixed;
+      z-index: 30;
+      max-width: 240px;
+      padding: 8px 10px;
+      border: 1px solid var(--cu-gold);
+      border-radius: 6px;
+      background: rgba(255, 255, 255, .98);
+      box-shadow: 0 10px 28px rgba(0, 0, 0, .16);
+      color: var(--cu-black);
+      font-size: 12px;
+      line-height: 1.35;
+      pointer-events: none;
+    }
+
+    .chart-tooltip strong {
+      display: block;
+      margin-bottom: 2px;
+      font-size: 12px;
+    }
+
+    .chart-tooltip[hidden] { display: none; }
+
     svg {
       display: block;
       width: 100%;
@@ -453,8 +476,23 @@ HTML_TEMPLATE = r"""<!doctype html>
       font-weight: 700;
     }
 
+    .flow-average-line {
+      stroke: var(--cu-black);
+      stroke-width: 1.6;
+      stroke-dasharray: 4 5;
+    }
+
+    .hist-bar,
+    .selected-bar {
+      cursor: pointer;
+    }
+
     .hist-bar { fill: #cfcfcf; }
-    .selected-bar { fill: var(--cu-black); }
+    .hist-bar:hover,
+    .hist-bar:focus { fill: #b4b4b4; }
+    .selected-bar { fill: var(--cu-gold); }
+    .selected-bar:hover,
+    .selected-bar:focus { fill: var(--cu-gold-dark); }
 
     .legend {
       display: flex;
@@ -751,6 +789,11 @@ HTML_TEMPLATE = r"""<!doctype html>
       qc5Sd: document.getElementById("qc5SdSelect")
     };
 
+    const chartTooltip = document.createElement("div");
+    chartTooltip.className = "chart-tooltip";
+    chartTooltip.hidden = true;
+    document.body.appendChild(chartTooltip);
+
     const fmtInt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
     const fmtShort = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
     const fmtPct = new Intl.NumberFormat("en-US", { style: "percent", maximumFractionDigits: 1 });
@@ -891,6 +934,52 @@ HTML_TEMPLATE = r"""<!doctype html>
       if (!Number.isFinite(value)) return "-";
       if (unit === "percent") return fmtPct.format(value);
       return fmtInt.format(value);
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, char => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;"
+      })[char]);
+    }
+
+    function positionTooltip(clientX, clientY) {
+      const gap = 14;
+      const rect = chartTooltip.getBoundingClientRect();
+      let left = clientX + gap;
+      let top = clientY + gap;
+      if (left + rect.width > window.innerWidth - 8) left = clientX - rect.width - gap;
+      if (top + rect.height > window.innerHeight - 8) top = clientY - rect.height - gap;
+      chartTooltip.style.left = `${Math.max(8, left)}px`;
+      chartTooltip.style.top = `${Math.max(8, top)}px`;
+    }
+
+    function showChartTooltip(html, clientX, clientY) {
+      chartTooltip.innerHTML = html;
+      chartTooltip.hidden = false;
+      positionTooltip(clientX, clientY);
+    }
+
+    function hideChartTooltip() {
+      chartTooltip.hidden = true;
+    }
+
+    function attachFlowTooltip(rect, bar, unit) {
+      const label = `${bar.batch}: ${exactValue(bar.value, unit)}`;
+      const html = `<strong>${escapeHtml(bar.batch)}</strong><span>${escapeHtml(exactValue(bar.value, unit))}</span>`;
+      rect.setAttribute("tabindex", "0");
+      rect.setAttribute("aria-label", label);
+      rect.addEventListener("mouseenter", event => showChartTooltip(html, event.clientX, event.clientY));
+      rect.addEventListener("mousemove", event => positionTooltip(event.clientX, event.clientY));
+      rect.addEventListener("mouseleave", hideChartTooltip);
+      rect.addEventListener("focus", () => {
+        const bounds = rect.getBoundingClientRect();
+        showChartTooltip(html, bounds.left + bounds.width / 2, bounds.top);
+      });
+      rect.addEventListener("blur", hideChartTooltip);
     }
 
     function mean(values) {
@@ -1197,6 +1286,7 @@ HTML_TEMPLATE = r"""<!doctype html>
           class: bar.kind === "selected" ? "selected-bar" : "hist-bar"
         });
         rect.appendChild(svgEl("title", {})).textContent = `${bar.batch}: ${exactValue(bar.value, unit)}`;
+        attachFlowTooltip(rect, bar, unit);
         svg.appendChild(rect);
 
         const label = svgEl("text", {
@@ -1212,7 +1302,7 @@ HTML_TEMPLATE = r"""<!doctype html>
 
       if (Number.isFinite(avg)) {
         const yy = y(avg);
-        svg.appendChild(svgEl("line", { x1: margin.left, x2: width - margin.right, y1: yy, y2: yy, stroke: "var(--cu-gold-dark)", "stroke-width": 2.4 }));
+        svg.appendChild(svgEl("line", { x1: margin.left, x2: width - margin.right, y1: yy, y2: yy, class: "flow-average-line" }));
         const label = svgEl("text", { x: width - margin.right, y: yy - 6, "text-anchor": "end", class: "sd-label" });
         label.textContent = `Avg ${formatValue(avg, unit)}`;
         svg.appendChild(label);
