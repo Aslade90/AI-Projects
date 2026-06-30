@@ -56,6 +56,18 @@ def load_logo_data_url() -> str:
     return f"data:image/jpeg;base64,{encoded}"
 
 
+def flow_metric_sort_key(metric: str) -> tuple[int, str]:
+    order = [
+        ("CD3+", 0),
+        ("CD8+", 1),
+        ("CD4+", 2),
+    ]
+    for marker, rank in order:
+        if marker in metric:
+            return rank, metric
+    return len(order), metric
+
+
 def build_payload() -> dict:
     long_df = pd.read_excel(WORKBOOK, sheet_name="Long Format")
     required = ["Batch", "Day", "Category", "Measurement Type", "Value", "Construct"]
@@ -94,7 +106,8 @@ def build_payload() -> dict:
                 row["type"]
                 for row in rows
                 if row["category"] == "Additional Assays" and phase in row["type"]
-            }
+            },
+            key=flow_metric_sort_key,
         )
         flow_metrics[phase] = metrics
 
@@ -435,7 +448,6 @@ HTML_TEMPLATE = r"""<!doctype html>
       font-weight: 700;
     }
 
-    .avg-bar { fill: var(--cu-gold); stroke: var(--cu-black); stroke-width: 1.2; }
     .hist-bar { fill: #cfcfcf; }
     .selected-bar { fill: var(--cu-black); }
 
@@ -561,11 +573,11 @@ HTML_TEMPLATE = r"""<!doctype html>
     </header>
 
     <div class="toolbar" aria-label="Report filters">
-      <label for="projectSelect">Project
-        <select id="projectSelect"></select>
-      </label>
       <label for="constructSelect">Construct
         <select id="constructSelect"></select>
+      </label>
+      <label for="projectSelect">Project
+        <select id="projectSelect"></select>
       </label>
       <label for="batchSelect">Batch of interest
         <select id="batchSelect"></select>
@@ -641,7 +653,7 @@ HTML_TEMPLATE = r"""<!doctype html>
     <section aria-labelledby="flowSection">
       <div class="section-head">
         <h2 id="flowSection">Flow Data</h2>
-        <p class="section-note">Each chart shows historical batch bars for the selected QC-4 or QC-5 flow measure, the highlighted batch when available, and a gold average bar. Dotted horizontal references show +/- 1SD, +/- 2SD, and +/- 3SD around the historical average.</p>
+        <p class="section-note">Each chart shows historical batch bars for the selected QC-4 or QC-5 flow measure and the highlighted batch when available. A labeled gold line marks the historical average, and dotted horizontal references show +/- 1SD, +/- 2SD, and +/- 3SD around that average.</p>
       </div>
       <div class="grid-3">
         <article class="panel">
@@ -709,6 +721,20 @@ HTML_TEMPLATE = r"""<!doctype html>
       select.appendChild(opt);
     }
 
+    function orderedValues(values, preferredOrder = []) {
+      const unique = [...new Set(values.filter(Boolean))];
+      return unique.sort((a, b) => {
+        const ai = preferredOrder.indexOf(a);
+        const bi = preferredOrder.indexOf(b);
+        if (ai !== -1 || bi !== -1) {
+          if (ai === -1) return 1;
+          if (bi === -1) return -1;
+          return ai - bi;
+        }
+        return String(a).localeCompare(String(b), undefined, { numeric: true });
+      });
+    }
+
     function shortMetric(name) {
       return name
         .replace(" Additional Assays", "")
@@ -719,27 +745,65 @@ HTML_TEMPLATE = r"""<!doctype html>
     }
 
     function setupControls() {
-      DATA.projects.forEach(project => option(els.project, project));
       DATA.constructs.forEach(construct => option(els.construct, construct));
 
-      const allBatches = [...new Set(DATA.rows.map(row => row.batch))].sort();
-      option(els.batch, "", "No batch selected");
-      allBatches.forEach(batch => option(els.batch, batch));
-      if (DATA.inputBatch && allBatches.includes(DATA.inputBatch)) {
-        els.batch.value = DATA.inputBatch;
-      }
-
-      inferDefaultsFromBatch();
+      const inputMatch = DATA.inputBatch ? DATA.rows.find(row => row.batch === DATA.inputBatch) : null;
+      if (inputMatch) els.construct.value = inputMatch.construct;
+      refreshProjectOptions(inputMatch?.project);
+      refreshBatchOptions(inputMatch?.batch || DATA.inputBatch);
       refreshFlowMetricOptions();
-      [els.project, els.construct, els.batch, els.qc4Metric, els.qc5Metric].forEach(control => {
-        control.addEventListener("change", () => {
-          if (control === els.batch && els.batch.value) inferDefaultsFromBatch();
-          render();
-        });
+
+      els.construct.addEventListener("change", () => {
+        refreshProjectOptions();
+        refreshBatchOptions();
+        render();
+      });
+      els.project.addEventListener("change", () => {
+        refreshBatchOptions();
+        render();
+      });
+      [els.batch, els.qc4Metric, els.qc5Metric].forEach(control => {
+        control.addEventListener("change", render);
       });
 
       document.getElementById("sourceWorkbook").textContent = DATA.sourceWorkbook;
       document.getElementById("generatedAt").textContent = DATA.generatedAt;
+    }
+
+    function refreshProjectOptions(preferredProject) {
+      const prior = preferredProject || els.project.value;
+      const projects = orderedValues(
+        DATA.rows
+          .filter(row => row.construct === els.construct.value)
+          .map(row => row.project),
+        DATA.projects
+      );
+      els.project.innerHTML = "";
+      projects.forEach(project => option(els.project, project));
+      if (projects.includes(prior)) {
+        els.project.value = prior;
+      } else if (projects.length) {
+        els.project.value = projects[0];
+      }
+    }
+
+    function refreshBatchOptions(preferredBatch) {
+      const prior = preferredBatch || els.batch.value;
+      const batches = orderedValues(
+        DATA.rows
+          .filter(row => row.construct === els.construct.value && row.project === els.project.value)
+          .map(row => row.batch)
+      );
+      els.batch.innerHTML = "";
+      option(els.batch, "", "No batch selected");
+      batches.forEach(batch => option(els.batch, batch));
+      if (batches.includes(prior)) {
+        els.batch.value = prior;
+      } else if (batches.length) {
+        els.batch.value = batches[0];
+      } else {
+        els.batch.value = "";
+      }
     }
 
     function refreshFlowMetricOptions() {
@@ -756,15 +820,6 @@ HTML_TEMPLATE = r"""<!doctype html>
           select.value = valid[0];
         }
       }
-    }
-
-    function inferDefaultsFromBatch() {
-      const selected = els.batch.value;
-      if (!selected) return;
-      const match = DATA.rows.find(row => row.batch === selected);
-      if (!match) return;
-      els.project.value = match.project;
-      els.construct.value = match.construct;
     }
 
     function currentRows() {
@@ -859,7 +914,6 @@ HTML_TEMPLATE = r"""<!doctype html>
       const avg = mean(hist.map(row => row.value));
       const sd = sampleSd(hist.map(row => row.value));
       const bars = byBatch.map(row => ({ ...row, kind: row.batch === selected ? "selected" : "historical" }));
-      if (Number.isFinite(avg)) bars.push({ batch: "Historical avg", value: avg, kind: "average" });
       return { rows, bars, hist, avg, sd, selectedBar: byBatch.find(row => row.batch === selected) };
     }
 
@@ -1069,7 +1123,7 @@ HTML_TEMPLATE = r"""<!doctype html>
           width: barW,
           height: Math.max(1, height - margin.bottom - yy),
           rx: 2,
-          class: bar.kind === "average" ? "avg-bar" : bar.kind === "selected" ? "selected-bar" : "hist-bar"
+          class: bar.kind === "selected" ? "selected-bar" : "hist-bar"
         });
         rect.appendChild(svgEl("title", {})).textContent = `${bar.batch}: ${exactValue(bar.value, unit)}`;
         svg.appendChild(rect);
@@ -1081,7 +1135,7 @@ HTML_TEMPLATE = r"""<!doctype html>
           "text-anchor": "end",
           class: "tick-label"
         });
-        label.textContent = bar.batch.replace("Historical avg", "Avg");
+        label.textContent = bar.batch;
         svg.appendChild(label);
       });
 
