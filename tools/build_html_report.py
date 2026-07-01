@@ -68,6 +68,20 @@ def flow_metric_sort_key(metric: str) -> tuple[int, str]:
     return len(order), metric
 
 
+def display_value(value) -> str | None:
+    if pd.isna(value):
+        return None
+    if isinstance(value, pd.Timestamp):
+        return value.strftime("%d%b%y").upper()
+    if hasattr(value, "item"):
+        value = value.item()
+    if isinstance(value, datetime):
+        return value.strftime("%d%b%y").upper()
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
 def build_payload() -> dict:
     long_df = pd.read_excel(WORKBOOK, sheet_name="Long Format")
     required = ["Batch", "Day", "Category", "Measurement Type", "Value", "Construct"]
@@ -79,8 +93,8 @@ def build_payload() -> dict:
     long_df["Batch"] = long_df["Batch"].astype(str).str.strip()
     long_df["Project"] = long_df["Batch"].str.extract(r"^([A-Z]\d{4}-\d{2})")
     long_df["Day"] = pd.to_numeric(long_df["Day"], errors="coerce")
-    long_df["Value"] = pd.to_numeric(long_df["Value"], errors="coerce")
-    long_df = long_df.dropna(subset=["Batch", "Project", "Value", "Construct", "Category", "Measurement Type"])
+    long_df["ValueNumeric"] = pd.to_numeric(long_df["Value"], errors="coerce")
+    long_df = long_df.dropna(subset=["Batch", "Project", "Construct", "Category", "Measurement Type"])
     long_df = long_df[~long_df["Measurement Type"].astype(str).str.contains("QC-12", regex=False, na=False)]
     long_df = long_df[long_df["Project"].isin(PROJECTS)]
     long_df = long_df[long_df["Construct"].isin(CONSTRUCTS)]
@@ -94,7 +108,8 @@ def build_payload() -> dict:
                 "day": None if pd.isna(row["Day"]) else float(row["Day"]),
                 "category": clean_value(row["Category"]),
                 "type": clean_value(row["Measurement Type"]),
-                "value": float(row["Value"]),
+                "value": None if pd.isna(row["ValueNumeric"]) else float(row["ValueNumeric"]),
+                "displayValue": display_value(row["Value"]),
                 "construct": clean_value(row["Construct"]),
             }
         )
@@ -176,15 +191,15 @@ HTML_TEMPLATE = r"""<!doctype html>
     }
 
     h1 {
-      margin: 0 0 8px;
-      font-size: clamp(26px, 3.2vw, 44px);
+      margin: 0;
+      font-size: clamp(30px, 3.6vw, 50px);
       line-height: 1.05;
       letter-spacing: 0;
     }
 
     .subtitle {
       max-width: 780px;
-      margin: 0;
+      margin: 30px 0 0;
       color: var(--cu-dark-gray);
       font-size: 15px;
       line-height: 1.55;
@@ -262,8 +277,7 @@ HTML_TEMPLATE = r"""<!doctype html>
     }
 
     .kpi,
-    .panel,
-    .note-panel {
+    .panel {
       background: var(--surface);
       border: 1px solid var(--line);
       border-radius: 8px;
@@ -336,6 +350,14 @@ HTML_TEMPLATE = r"""<!doctype html>
       gap: 16px;
     }
 
+    .grid-3 .panel {
+      padding-top: 12px;
+    }
+
+    .grid-2 .panel {
+      padding-top: 12px;
+    }
+
     .panel {
       min-width: 0;
       padding: 16px;
@@ -350,12 +372,22 @@ HTML_TEMPLATE = r"""<!doctype html>
 
     .line-head {
       grid-template-columns: 1fr minmax(160px, 220px);
-      align-items: end;
+      align-items: start;
+    }
+
+    .line-head h3 {
+      font-size: 22px;
+      line-height: 1.08;
     }
 
     .flow-head {
       grid-template-columns: 1fr minmax(190px, 280px) minmax(160px, 220px);
-      align-items: end;
+      align-items: start;
+    }
+
+    .flow-head h3 {
+      font-size: 22px;
+      line-height: 1.08;
     }
 
     h3 {
@@ -363,26 +395,6 @@ HTML_TEMPLATE = r"""<!doctype html>
       font-size: 17px;
       line-height: 1.25;
       letter-spacing: 0;
-    }
-
-    .chart-meta {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-top: 8px;
-      color: var(--cu-dark-gray);
-      font-size: 12px;
-      line-height: 1.35;
-    }
-
-    .pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      border: 1px solid var(--line);
-      border-radius: 999px;
-      padding: 4px 9px;
-      background: #faf9f6;
     }
 
     .chart {
@@ -536,16 +548,6 @@ HTML_TEMPLATE = r"""<!doctype html>
       border: 1px solid rgba(156, 123, 53, .2);
     }
 
-    .note-panel {
-      margin-top: 16px;
-      padding: 16px;
-      color: var(--cu-dark-gray);
-      line-height: 1.55;
-      font-size: 14px;
-    }
-
-    .note-panel strong { color: var(--cu-black); }
-
     .empty-state {
       min-height: 280px;
       display: grid;
@@ -610,7 +612,7 @@ HTML_TEMPLATE = r"""<!doctype html>
       body { background: #ffffff; }
       .toolbar, .print-button { display: none; }
       .page { width: 100%; padding: 0; }
-      .panel, .kpi, .note-panel { break-inside: avoid; }
+      .panel, .kpi { break-inside: avoid; }
       .chart { min-height: 300px; }
     }
   </style>
@@ -620,7 +622,7 @@ HTML_TEMPLATE = r"""<!doctype html>
     <header>
       <div>
         <h1>Gates Manufacturing Report</h1>
-        <p class="subtitle">Cell concentration, viability, and flow assay monitoring from the workbook's Long Format sheet. QC-12 rows are excluded from the current graph set. Historical averages and standard-deviation ranges exclude the selected batch when a batch is indicated in the input sheet.</p>
+        <p class="subtitle">Reported data from current and historical TCT manufacturing batches performed at Gates Biomanufacturing Facility.</p>
       </div>
       <img class="logo" src="__LOGO_DATA_URL__" alt="University of Colorado Anschutz Gates Biomanufacturing Facility logo">
     </header>
@@ -650,14 +652,14 @@ HTML_TEMPLATE = r"""<!doctype html>
         <div class="kpi-foot">Filtered project and construct, selected batch excluded</div>
       </div>
       <div class="kpi">
-        <div class="kpi-title">Live Data Points</div>
+        <div class="kpi-title">Date of Manufacture</div>
         <div class="kpi-value" id="kpiLive">-</div>
-        <div class="kpi-foot">Rows used in the live concentration view</div>
+        <div class="kpi-foot">Selected batch from Long Format</div>
       </div>
       <div class="kpi">
-        <div class="kpi-title">Viability Data Points</div>
+        <div class="kpi-title">Dose Level</div>
         <div class="kpi-value" id="kpiViability">-</div>
-        <div class="kpi-foot">Rows used in the viability view</div>
+        <div class="kpi-foot">Selected batch from Long Format</div>
       </div>
     </div>
 
@@ -665,13 +667,11 @@ HTML_TEMPLATE = r"""<!doctype html>
       <div class="section-head">
         <h2 id="cellSection">Cell Concentration and Viability Data</h2>
       </div>
-      <p class="section-note">Gray lines show historical batches. Gold highlights the selected batch. The thinner black line shows the historical average and sits behind the selected batch. Each line chart has its own SD range control for the shaded standard-deviation range and matching dotted limits.</p>
       <div class="grid-2">
         <article class="panel">
           <div class="panel-head line-head">
             <div>
               <h3>Live Cell Concentration vs Day</h3>
-              <div class="chart-meta" id="liveMeta"></div>
             </div>
             <label for="liveSdSelect">SD range
               <select id="liveSdSelect">
@@ -696,7 +696,6 @@ HTML_TEMPLATE = r"""<!doctype html>
           <div class="panel-head line-head">
             <div>
               <h3>Viability vs Day</h3>
-              <div class="chart-meta" id="viabilityMeta"></div>
             </div>
             <label for="viabilitySdSelect">SD range
               <select id="viabilitySdSelect">
@@ -722,14 +721,12 @@ HTML_TEMPLATE = r"""<!doctype html>
     <section aria-labelledby="flowSection">
       <div class="section-head">
         <h2 id="flowSection">Flow Data</h2>
-        <p class="section-note">Each chart shows historical batch bars for the selected QC-4 or QC-5 flow measure and the highlighted batch when available. A labeled gold line marks the historical average. Each flow chart has its own SD range control for the dotted horizontal references around that average.</p>
       </div>
       <div class="grid-3">
         <article class="panel">
           <div class="panel-head flow-head">
             <div>
               <h3>QC-4 Flow</h3>
-              <div class="chart-meta" id="qc4Meta"></div>
             </div>
             <label for="qc4Metric">Measure
               <select id="qc4Metric"></select>
@@ -750,7 +747,6 @@ HTML_TEMPLATE = r"""<!doctype html>
           <div class="panel-head flow-head">
             <div>
               <h3>QC-5 Flow</h3>
-              <div class="chart-meta" id="qc5Meta"></div>
             </div>
             <label for="qc5Metric">Measure
               <select id="qc5Metric"></select>
@@ -768,10 +764,6 @@ HTML_TEMPLATE = r"""<!doctype html>
         </article>
       </div>
     </section>
-
-    <div class="note-panel">
-      <strong>Input sheet suggestion:</strong> the current one-cell input sheet works well for a single highlighted batch. If this report grows, a small inputs table with columns for batch of interest, default project, default construct, owner, and refresh date would make the report easier to audit and extend.
-    </div>
 
     <footer>
       Source workbook: <span id="sourceWorkbook"></span><br>
@@ -922,6 +914,19 @@ HTML_TEMPLATE = r"""<!doctype html>
 
     function selectedBatch() {
       return els.batch.value || "";
+    }
+
+    function selectedAdditionalValue(measureType, missingText = "-") {
+      const selected = selectedBatch();
+      if (!selected) return "-";
+      const row = currentRows().find(item =>
+        item.batch === selected &&
+        item.category === "Additional Data" &&
+        item.type === measureType
+      );
+      if (!row) return missingText;
+      if (row.displayValue !== null && row.displayValue !== undefined && row.displayValue !== "") return row.displayValue;
+      return Number.isFinite(row.value) ? formatValue(row.value, "count") : missingText;
     }
 
     function selectedLineSdMultiplier(select) {
@@ -1129,35 +1134,12 @@ HTML_TEMPLATE = r"""<!doctype html>
       container.innerHTML = `<div class="empty-state">${message}</div>`;
     }
 
-    function renderLineChart(container, metaId, title, category, unit, sdSelect) {
+    function renderLineChart(container, title, category, unit, sdSelect) {
       const { rows, selectedPoints, historicalSeries, stats } = lineData(category);
       const selected = selectedBatch();
       const sdMultiplier = selectedLineSdMultiplier(sdSelect);
       const showSd = sdMultiplier > 0;
       const maxDisplayValue = unit === "percent" ? 1 : null;
-      const historicalCount = new Set(historicalSeries.map(series => series.batch)).size;
-      const below = [];
-      const above = [];
-      if (showSd) {
-        stats.forEach(point => {
-          if (point.mean - point.sd * sdMultiplier < 0) below.push(`${sdMultiplier}SD day ${roundDay(point.day)}`);
-          if (maxDisplayValue !== null && point.mean + point.sd * sdMultiplier > maxDisplayValue) {
-            above.push(`${sdMultiplier}SD day ${roundDay(point.day)}`);
-          }
-        });
-      }
-
-      document.getElementById(metaId).innerHTML = [
-        `<span class="pill">${rows.length} source rows</span>`,
-        `<span class="pill">${historicalCount} historical batches</span>`,
-        selected ? `<span class="pill">Highlighted ${selected}</span>` : `<span class="pill">No batch excluded</span>`,
-        showSd
-          ? (below.length ? `<span class="pill">${below.length} lower SD limits omitted below zero</span>` : `<span class="pill">No below-zero SD limits</span>`)
-          : `<span class="pill">SD guides off</span>`,
-        ...(showSd && maxDisplayValue !== null
-          ? [above.length ? `<span class="pill">${above.length} upper SD limits omitted above 100%</span>` : `<span class="pill">No above-100% SD limits</span>`]
-          : [])
-      ].join("");
 
       if (!rows.length || (!historicalSeries.length && !selectedPoints.length)) {
         renderEmpty(container, `No ${title.toLowerCase()} data is available for the selected filters.`);
@@ -1253,20 +1235,10 @@ HTML_TEMPLATE = r"""<!doctype html>
       container.appendChild(svg);
     }
 
-    function renderFlowChart(container, metaId, metric, unit = "percent", sdSelect) {
-      const selected = selectedBatch();
-      const { rows, bars, hist, avg, sd, selectedBar } = flowData(metric);
+    function renderFlowChart(container, metric, unit = "percent", sdSelect) {
+      const { rows, bars, avg, sd } = flowData(metric);
       const sdMultiplier = selectedLineSdMultiplier(sdSelect);
       const showSd = sdMultiplier > 0;
-      const below = showSd && Number.isFinite(avg) && avg - sd * sdMultiplier < 0 ? [sdMultiplier] : [];
-      document.getElementById(metaId).innerHTML = [
-        `<span class="pill">${rows.length} source rows</span>`,
-        `<span class="pill">${hist.length} historical batches</span>`,
-        selectedBar ? `<span class="pill">Highlighted ${selected}</span>` : `<span class="pill">Selected batch not present</span>`,
-        showSd
-          ? (below.length ? `<span class="pill">${sdMultiplier}SD lower limit omitted below zero</span>` : `<span class="pill">No below-zero SD limits</span>`)
-          : `<span class="pill">SD guides off</span>`
-      ].join("");
 
       if (!metric || !bars.length) {
         renderEmpty(container, "No flow data is available for this phase and filter combination.");
@@ -1355,17 +1327,17 @@ HTML_TEMPLATE = r"""<!doctype html>
       document.getElementById("kpiBatch").textContent = selected || "None";
       document.getElementById("kpiBatchFoot").textContent = selected === DATA.inputBatch ? "From input sheet" : "Changed in report controls";
       document.getElementById("kpiHistorical").textContent = fmtInt.format(historicalBatches.size);
-      document.getElementById("kpiLive").textContent = fmtInt.format(rows.filter(row => row.category === "Live Cell Concentration").length);
-      document.getElementById("kpiViability").textContent = fmtInt.format(rows.filter(row => row.category === "Viabilities").length);
+      document.getElementById("kpiLive").textContent = selectedAdditionalValue("Date of Manufacture", "Ongoing");
+      document.getElementById("kpiViability").textContent = selectedAdditionalValue("Dose Level", "Not Confirmed");
     }
 
     function render() {
       refreshFlowMetricOptions();
       updateKpis();
-      renderLineChart(els.liveChart, "liveMeta", "Live cell concentration vs day", "Live Cell Concentration", "scientific", els.liveSd);
-      renderLineChart(els.viabilityChart, "viabilityMeta", "Viability vs day", "Viabilities", "percent", els.viabilitySd);
-      renderFlowChart(els.qc4Chart, "qc4Meta", els.qc4Metric.value, "percent", els.qc4Sd);
-      renderFlowChart(els.qc5Chart, "qc5Meta", els.qc5Metric.value, "percent", els.qc5Sd);
+      renderLineChart(els.liveChart, "Live cell concentration vs day", "Live Cell Concentration", "scientific", els.liveSd);
+      renderLineChart(els.viabilityChart, "Viability vs day", "Viabilities", "percent", els.viabilitySd);
+      renderFlowChart(els.qc4Chart, els.qc4Metric.value, "percent", els.qc4Sd);
+      renderFlowChart(els.qc5Chart, els.qc5Metric.value, "percent", els.qc5Sd);
     }
 
     setupControls();
