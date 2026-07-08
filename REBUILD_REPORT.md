@@ -5,8 +5,8 @@ This report is a static HTML file. It does not read the Excel workbook every tim
 ## Files
 
 - Source spreadsheet: `C:\Users\sladeand\Desktop\Codex Manufacturing Data.xlsx`
-- Report builder: `C:\Users\sladeand\Documents\Gates Manufacturing Reporting\tools\build_html_report.py`
-- Generated report: `C:\Users\sladeand\Documents\Gates Manufacturing Reporting\report\manufacturing_report.html`
+- Report builder: `C:\Users\sladeand\Desktop\Reporting Apps\Manufacturing Report Dashboard\tools\build_html_report.py`
+- Generated report: `C:\Users\sladeand\Desktop\Reporting Apps\Manufacturing Report Dashboard\report\manufacturing_report.html`
 
 ## Rebuild Workflow
 
@@ -23,7 +23,7 @@ This report is a static HTML file. It does not read the Excel workbook every tim
 3. Open PowerShell in the project folder:
 
    ```powershell
-   cd 'C:\Users\sladeand\Documents\Gates Manufacturing Reporting'
+   cd 'C:\Users\sladeand\Desktop\Reporting Apps\Manufacturing Report Dashboard'
    ```
 
 4. Run the builder:
@@ -37,7 +37,7 @@ This report is a static HTML file. It does not read the Excel workbook every tim
    Report address:
 
    ```text
-   file:///C:/Users/sladeand/Documents/Gates%20Manufacturing%20Reporting/report/manufacturing_report.html
+   file:///C:/Users/sladeand/Desktop/Reporting%20Apps/Manufacturing%20Report%20Dashboard/report/manufacturing_report.html
    ```
 
 ## What Updates
@@ -55,4 +55,3 @@ In Codex, ask:
 ```text
 save this to github
 ```
-

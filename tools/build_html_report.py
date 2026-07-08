@@ -8,14 +8,21 @@ from pathlib import Path
 import pandas as pd
 
 
+PROJECT_DIR = Path(__file__).resolve().parents[1]
 WORKBOOK = Path(r"C:\Users\sladeand\Desktop\Codex Manufacturing Data.xlsx")
-LOGO = Path(r"C:\Users\sladeand\Desktop\Reporting App\v1.0\Logo.jpg")
-OUTPUT = Path(r"C:\Users\sladeand\Documents\Gates Manufacturing Reporting\report\manufacturing_report.html")
+LOGO = PROJECT_DIR / "assets" / "Logo.jpg"
+OUTPUT = PROJECT_DIR / "report" / "manufacturing_report.html"
 
 
 PROJECTS = ["Z0121-02", "Z0121-03", "P1114-01", "P1114-02"]
 CONSTRUCTS = ["CD19", "CD19x22"]
 FLOW_PHASES = ["QC-4", "QC-5"]
+PROJECT_CONSTRUCTS = {
+    "Z0121-02": "CD19",
+    "Z0121-03": "CD19",
+    "P1114-01": "CD19x22",
+    "P1114-02": "CD19x22",
+}
 
 
 def clean_value(value):
@@ -48,6 +55,50 @@ def load_input_batch() -> str:
             if text:
                 return text
     return ""
+
+
+def load_specs() -> list[dict]:
+    try:
+        specs_df = pd.read_excel(WORKBOOK, sheet_name="Specs")
+    except ValueError:
+        return []
+
+    if specs_df.empty:
+        return []
+
+    specs_df = specs_df.rename(columns={column: str(column).strip() for column in specs_df.columns})
+    measurement_column = "Measurement Type" if "Measurement Type" in specs_df.columns else "Measurment Type"
+    optional = ["Start Batch", "End Batch", "Label"]
+    required = ["Construct", "Project", "Graph", measurement_column, "Value"]
+    missing = [column for column in required if column not in specs_df.columns]
+    if missing:
+        raise ValueError(f"Missing required Specs columns: {', '.join(missing)}")
+
+    specs = []
+    columns = required + [column for column in optional if column in specs_df.columns]
+    for row in specs_df[columns].to_dict("records"):
+        value = pd.to_numeric(row["Value"], errors="coerce")
+        if pd.isna(value):
+            continue
+
+        def text_field(column: str) -> str:
+            if column not in row or pd.isna(row[column]):
+                return ""
+            return str(clean_value(row[column])).strip()
+
+        specs.append(
+            {
+                "construct": clean_value(str(row["Construct"]).strip()),
+                "project": clean_value(str(row["Project"]).strip()),
+                "graph": clean_value(str(row["Graph"]).strip()),
+                "type": clean_value(str(row[measurement_column]).strip()),
+                "value": float(value),
+                "startBatch": text_field("Start Batch"),
+                "endBatch": text_field("End Batch"),
+                "label": text_field("Label"),
+            }
+        )
+    return specs
 
 
 def load_logo_data_url() -> str:
@@ -94,6 +145,9 @@ def build_payload() -> dict:
     long_df["Project"] = long_df["Batch"].str.extract(r"^([A-Z]\d{4}-\d{2})")
     long_df["Day"] = pd.to_numeric(long_df["Day"], errors="coerce")
     long_df["ValueNumeric"] = pd.to_numeric(long_df["Value"], errors="coerce")
+    long_df["Construct"] = long_df["Construct"].fillna("").astype(str).str.strip()
+    missing_construct = long_df["Construct"].str.lower().isin(["", "nan", "none"])
+    long_df.loc[missing_construct, "Construct"] = long_df.loc[missing_construct, "Project"].map(PROJECT_CONSTRUCTS)
     long_df = long_df.dropna(subset=["Batch", "Project", "Construct", "Category", "Measurement Type"])
     long_df = long_df[~long_df["Measurement Type"].astype(str).str.contains("QC-12", regex=False, na=False)]
     long_df = long_df[long_df["Project"].isin(PROJECTS)]
@@ -135,6 +189,7 @@ def build_payload() -> dict:
         "constructs": CONSTRUCTS,
         "rows": rows,
         "flowMetrics": flow_metrics,
+        "specs": load_specs(),
     }
 
 
@@ -145,6 +200,8 @@ HTML_TEMPLATE = r"""<!doctype html>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Gates Manufacturing Report</title>
   <style>
+    @import url("https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700;800&display=swap");
+
     :root {
       --cu-black: #000000;
       --cu-gold: #cfb87c;
@@ -157,10 +214,12 @@ HTML_TEMPLATE = r"""<!doctype html>
       --line: #d7d3c8;
       --success: #28745f;
       --warning: #8a5d00;
+      --alert-red: #b42318;
+      --alert-red-dark: #7a1b14;
       --band-1: rgba(207, 184, 124, 0.26);
       --band-2: rgba(207, 184, 124, 0.26);
       --band-3: rgba(207, 184, 124, 0.26);
-      font-family: Inter, Segoe UI, Roboto, Arial, sans-serif;
+      font-family: "Source Sans 3", "Segoe UI", Roboto, Arial, sans-serif;
       color: var(--cu-black);
       background: var(--canvas);
     }
@@ -430,6 +489,24 @@ HTML_TEMPLATE = r"""<!doctype html>
 
     .chart-tooltip[hidden] { display: none; }
 
+    .chart-alert {
+      display: inline-flex;
+      align-items: center;
+      width: fit-content;
+      max-width: 100%;
+      margin: -2px 0 10px;
+      padding: 5px 10px;
+      border: 1px solid rgba(180, 35, 24, .4);
+      border-radius: 999px;
+      background: rgba(180, 35, 24, .08);
+      color: var(--alert-red-dark);
+      font-size: 12px;
+      font-weight: 800;
+      line-height: 1.2;
+    }
+
+    .chart-alert[hidden] { display: none; }
+
     svg {
       display: block;
       width: 100%;
@@ -482,12 +559,31 @@ HTML_TEMPLATE = r"""<!doctype html>
       cursor: pointer;
     }
 
+    .outlier-point {
+      fill: var(--alert-red);
+      stroke: var(--cu-black);
+      stroke-width: 1.7;
+    }
+
     .sd-line {
       fill: none;
       stroke: var(--cu-dark-gray);
       stroke-width: 1.15;
       stroke-dasharray: 5 5;
       stroke-opacity: .66;
+    }
+
+    .spec-line {
+      fill: none;
+      stroke: rgba(180, 35, 24, .48);
+      stroke-width: 1.45;
+      stroke-dasharray: 3 5;
+    }
+
+    .spec-label {
+      fill: var(--alert-red-dark);
+      font-size: 10px;
+      font-weight: 800;
     }
 
     .sd-label {
@@ -513,6 +609,9 @@ HTML_TEMPLATE = r"""<!doctype html>
     .selected-bar { fill: var(--cu-gold); }
     .selected-bar:hover,
     .selected-bar:focus { fill: var(--cu-gold-dark); }
+    .outlier-bar,
+    .outlier-bar:hover,
+    .outlier-bar:focus { fill: var(--alert-red); }
 
     .legend {
       display: flex;
@@ -682,6 +781,7 @@ HTML_TEMPLATE = r"""<!doctype html>
               </select>
             </label>
           </div>
+          <div class="chart-alert" id="liveAlert" aria-live="polite" hidden>Data point outside of +/- 3SD range</div>
           <div class="chart" id="liveChart"></div>
           <div class="legend" aria-label="Live concentration legend">
             <span class="legend-item"><span class="swatch gray"></span> Historical batches</span>
@@ -706,6 +806,7 @@ HTML_TEMPLATE = r"""<!doctype html>
               </select>
             </label>
           </div>
+          <div class="chart-alert" id="viabilityAlert" aria-live="polite" hidden>Data point outside of +/- 3SD range</div>
           <div class="chart" id="viabilityChart"></div>
           <div class="legend" aria-label="Viability legend">
             <span class="legend-item"><span class="swatch gray"></span> Historical batches</span>
@@ -740,6 +841,8 @@ HTML_TEMPLATE = r"""<!doctype html>
               </select>
             </label>
           </div>
+          <div class="chart-alert" id="qc4Alert" aria-live="polite" hidden>Data point outside of +/- 3SD range</div>
+          <div class="chart-alert" id="qc4SpecAlert" aria-live="polite" hidden>Selected batch does not meet specification</div>
           <div class="chart" id="qc4Chart"></div>
         </article>
 
@@ -760,6 +863,8 @@ HTML_TEMPLATE = r"""<!doctype html>
               </select>
             </label>
           </div>
+          <div class="chart-alert" id="qc5Alert" aria-live="polite" hidden>Data point outside of +/- 3SD range</div>
+          <div class="chart-alert" id="qc5SpecAlert" aria-live="polite" hidden>Selected batch does not meet specification</div>
           <div class="chart" id="qc5Chart"></div>
         </article>
       </div>
@@ -780,10 +885,16 @@ HTML_TEMPLATE = r"""<!doctype html>
       batch: document.getElementById("batchSelect"),
       liveChart: document.getElementById("liveChart"),
       viabilityChart: document.getElementById("viabilityChart"),
+      liveAlert: document.getElementById("liveAlert"),
+      viabilityAlert: document.getElementById("viabilityAlert"),
       liveSd: document.getElementById("liveSdSelect"),
       viabilitySd: document.getElementById("viabilitySdSelect"),
       qc4Chart: document.getElementById("qc4Chart"),
       qc5Chart: document.getElementById("qc5Chart"),
+      qc4Alert: document.getElementById("qc4Alert"),
+      qc5Alert: document.getElementById("qc5Alert"),
+      qc4SpecAlert: document.getElementById("qc4SpecAlert"),
+      qc5SpecAlert: document.getElementById("qc5SpecAlert"),
       qc4Metric: document.getElementById("qc4Metric"),
       qc5Metric: document.getElementById("qc5Metric"),
       qc4Sd: document.getElementById("qc4SdSelect"),
@@ -799,6 +910,7 @@ HTML_TEMPLATE = r"""<!doctype html>
     const fmtShort = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
     const fmtPct = new Intl.NumberFormat("en-US", { style: "percent", maximumFractionDigits: 1 });
     const fmtNum = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
+    const lineSdDays = new Set([1, 3, 6, 8, 9, 10]);
 
     function option(select, value, label = value) {
       const opt = document.createElement("option");
@@ -933,6 +1045,28 @@ HTML_TEMPLATE = r"""<!doctype html>
       return Number(select.value);
     }
 
+    function matchingSpecs(graph, measurementType = "") {
+      return DATA.specs.filter(spec =>
+        spec.construct === els.construct.value &&
+        spec.project === els.project.value &&
+        spec.graph === graph &&
+        (!measurementType || spec.type === measurementType)
+      );
+    }
+
+    function specAppliesToBatch(spec, batch) {
+      if (!spec.startBatch && !spec.endBatch) return true;
+      if (!batch) return false;
+      if (spec.startBatch && batch < spec.startBatch) return false;
+      if (spec.endBatch && batch > spec.endBatch) return false;
+      return true;
+    }
+
+    function selectedSpec(graph, measurementType = "", batch = selectedBatch()) {
+      const specs = matchingSpecs(graph, measurementType);
+      return specs.find(spec => specAppliesToBatch(spec, batch)) || specs[0] || null;
+    }
+
     function roundDay(day) {
       return Number.isInteger(day) ? String(day) : fmtNum.format(day);
     }
@@ -983,11 +1117,19 @@ HTML_TEMPLATE = r"""<!doctype html>
       chartTooltip.hidden = true;
     }
 
-    function attachFlowTooltip(rect, bar, unit) {
+    function attachFlowTooltip(rect, bar, unit, isOutlier = false, isSpecFailure = false) {
       const label = `${bar.batch}: ${exactValue(bar.value, unit)}`;
-      const html = `<strong>${escapeHtml(bar.batch)}</strong><span>${escapeHtml(exactValue(bar.value, unit))}</span>`;
+      const status = [
+        isOutlier ? "<span>Outside +/-3SD</span>" : "",
+        isSpecFailure ? "<span>Does not meet specification</span>" : ""
+      ].join("");
+      const html = `<strong>${escapeHtml(bar.batch)}</strong><span>${escapeHtml(exactValue(bar.value, unit))}</span>${status}`;
       rect.setAttribute("tabindex", "0");
-      rect.setAttribute("aria-label", label);
+      const ariaStatus = [
+        isOutlier ? "outside +/-3SD" : "",
+        isSpecFailure ? "does not meet specification" : ""
+      ].filter(Boolean).join(", ");
+      rect.setAttribute("aria-label", ariaStatus ? `${label}, ${ariaStatus}` : label);
       rect.addEventListener("mouseenter", event => showChartTooltip(html, event.clientX, event.clientY));
       rect.addEventListener("mousemove", event => positionTooltip(event.clientX, event.clientY));
       rect.addEventListener("mouseleave", hideChartTooltip);
@@ -998,13 +1140,14 @@ HTML_TEMPLATE = r"""<!doctype html>
       rect.addEventListener("blur", hideChartTooltip);
     }
 
-    function attachLinePointTooltip(dot, batch, point, unit) {
+    function attachLinePointTooltip(dot, batch, point, unit, isOutlier = false) {
       const value = exactValue(point.value, unit);
       const day = roundDay(point.day);
       const label = `${batch} day ${day}: ${value}`;
-      const html = `<strong>${escapeHtml(batch)}</strong><span>Day ${escapeHtml(day)}</span><span>Y value: ${escapeHtml(value)}</span>`;
+      const status = isOutlier ? "<span>Outside +/-3SD</span>" : "";
+      const html = `<strong>${escapeHtml(batch)}</strong><span>Day ${escapeHtml(day)}</span><span>Y value: ${escapeHtml(value)}</span>${status}`;
       dot.setAttribute("tabindex", "0");
-      dot.setAttribute("aria-label", label);
+      dot.setAttribute("aria-label", isOutlier ? `${label}, outside +/-3SD` : label);
       dot.addEventListener("mouseenter", event => showChartTooltip(html, event.clientX, event.clientY));
       dot.addEventListener("mousemove", event => positionTooltip(event.clientX, event.clientY));
       dot.addEventListener("mouseleave", hideChartTooltip);
@@ -1013,6 +1156,53 @@ HTML_TEMPLATE = r"""<!doctype html>
         showChartTooltip(html, bounds.left + bounds.width / 2, bounds.top);
       });
       dot.addEventListener("blur", hideChartTooltip);
+    }
+
+    function isOutsideSdRange(value, mean, sd, multiplier = 3) {
+      if (![value, mean, sd].every(Number.isFinite)) return false;
+      const spread = Math.max(0, sd) * multiplier;
+      return value > mean + spread || value < mean - spread;
+    }
+
+    function drawSpecLine(svg, spec, x1, x2, y, unit, labelX = x2, deferLabel = false) {
+      if (!spec || !Number.isFinite(spec.value)) return null;
+      if (x2 <= x1) return null;
+      const yy = y(spec.value);
+      svg.appendChild(svgEl("line", { x1, x2, y1: yy, y2: yy, class: "spec-line" }));
+      const label = svgEl("text", { x: labelX, y: yy - 6, "text-anchor": "end", class: "spec-label" });
+      label.textContent = `Spec ${formatValue(spec.value, unit)}`;
+      if (!deferLabel) svg.appendChild(label);
+      return label;
+    }
+
+    function appendReferenceLabels(svg, labels, minY, maxY, minGap = 14) {
+      const items = labels
+        .filter(Boolean)
+        .map(label => ({ label, y: Number(label.getAttribute("y")) }))
+        .filter(item => Number.isFinite(item.y))
+        .sort((a, b) => a.y - b.y);
+      if (!items.length) return;
+
+      items.forEach((item, index) => {
+        item.y = Math.min(maxY, Math.max(minY, item.y));
+        if (index > 0 && item.y < items[index - 1].y + minGap) {
+          item.y = items[index - 1].y + minGap;
+        }
+      });
+
+      const overflow = items[items.length - 1].y - maxY;
+      if (overflow > 0) {
+        items.forEach(item => item.y -= overflow);
+      }
+      if (items[0].y < minY) {
+        const underflow = minY - items[0].y;
+        items.forEach(item => item.y += underflow);
+      }
+
+      items.forEach(item => {
+        item.label.setAttribute("y", item.y.toFixed(1));
+        svg.appendChild(item.label);
+      });
     }
 
     function mean(values) {
@@ -1134,14 +1324,30 @@ HTML_TEMPLATE = r"""<!doctype html>
       container.innerHTML = `<div class="empty-state">${message}</div>`;
     }
 
-    function renderLineChart(container, title, category, unit, sdSelect) {
+    function setOutlierAlert(alertEl, hasOutlier) {
+      if (!alertEl) return;
+      alertEl.hidden = !hasOutlier;
+    }
+
+    function renderLineChart(container, title, category, unit, sdSelect, alertEl) {
       const { rows, selectedPoints, historicalSeries, stats } = lineData(category);
       const selected = selectedBatch();
       const sdMultiplier = selectedLineSdMultiplier(sdSelect);
       const showSd = sdMultiplier > 0;
       const maxDisplayValue = unit === "percent" ? 1 : null;
+      const sdStats = stats.filter(point => lineSdDays.has(point.day));
+      const statsByDay = new Map(sdStats.map(point => [point.day, point]));
+      const flagOutliers = sdMultiplier === 3;
+      const spec = category === "Viabilities" ? selectedSpec("Viability vs Day") : null;
+      const isLineOutlier = point => {
+        const dayStat = statsByDay.get(point.day);
+        return Boolean(flagOutliers && dayStat && isOutsideSdRange(point.value, dayStat.mean, dayStat.sd));
+      };
+      const hasOutlier = selectedPoints.some(isLineOutlier);
+      setOutlierAlert(alertEl, hasOutlier);
 
       if (!rows.length || (!historicalSeries.length && !selectedPoints.length)) {
+        setOutlierAlert(alertEl, false);
         renderEmpty(container, `No ${title.toLowerCase()} data is available for the selected filters.`);
         return;
       }
@@ -1158,10 +1364,11 @@ HTML_TEMPLATE = r"""<!doctype html>
       ])].sort((a, b) => a - b);
       const minDay = Math.min(...allDays);
       const maxDay = Math.max(...allDays);
-      const upper3SdMax = Math.max(0, ...stats.map(point => point.mean + point.sd * 3).filter(Number.isFinite));
+      const upper3SdMax = Math.max(0, ...sdStats.map(point => point.mean + point.sd * 3).filter(Number.isFinite));
       const selectedMax = Math.max(0, ...selectedPoints.map(point => point.value).filter(Number.isFinite));
+      const specMax = spec && Number.isFinite(spec.value) ? spec.value : 0;
       const fallbackValueMax = Math.max(0, ...rows.map(row => row.value).filter(Number.isFinite));
-      const axisMax = Math.max(upper3SdMax, selectedMax);
+      const axisMax = Math.max(upper3SdMax, selectedMax, specMax);
       const yMax = maxDisplayValue !== null ? maxDisplayValue : axisMax > 0 ? axisMax * 1.04 : fallbackValueMax > 0 ? fallbackValueMax * 1.04 : 1;
       const x = day => margin.left + ((day - minDay) / Math.max(1, maxDay - minDay)) * plotW;
       const y = value => {
@@ -1193,7 +1400,7 @@ HTML_TEMPLATE = r"""<!doctype html>
       svg.appendChild(svgEl("line", { x1: margin.left, x2: margin.left, y1: margin.top, y2: height - margin.bottom, class: "axis-line" }));
 
       if (showSd) {
-        const sdBand = bandPath(stats, sdMultiplier, x, y, { maxValue: maxDisplayValue });
+        const sdBand = bandPath(sdStats, sdMultiplier, x, y, { maxValue: maxDisplayValue });
         if (sdBand) svg.appendChild(svgEl("path", { d: sdBand, fill: `var(--band-${sdMultiplier})`, stroke: "none" }));
       }
 
@@ -1205,10 +1412,14 @@ HTML_TEMPLATE = r"""<!doctype html>
       });
 
       if (showSd) {
-        const upper = linePath(stats, point => point.mean + point.sd * sdMultiplier, x, y, { maxValue: maxDisplayValue });
+        const upper = linePath(sdStats, point => point.mean + point.sd * sdMultiplier, x, y, { maxValue: maxDisplayValue });
         if (upper) svg.appendChild(svgEl("path", { d: upper, class: "sd-line" }));
-        const lower = linePath(stats, point => point.mean - point.sd * sdMultiplier, x, y, { skipBelowZero: true, maxValue: maxDisplayValue });
+        const lower = linePath(sdStats, point => point.mean - point.sd * sdMultiplier, x, y, { skipBelowZero: true, maxValue: maxDisplayValue });
         if (lower) svg.appendChild(svgEl("path", { d: lower, class: "sd-line" }));
+      }
+
+      if (spec && spec.value >= 0 && (maxDisplayValue === null || spec.value <= maxDisplayValue)) {
+        drawSpecLine(svg, spec, margin.left, width - margin.right, y, unit);
       }
 
       const avgPath = linePath(stats, point => point.mean, x, y);
@@ -1217,9 +1428,10 @@ HTML_TEMPLATE = r"""<!doctype html>
       if (selectedPoints.length) {
         if (selectedPoints.length > 1) svg.appendChild(svgEl("path", { d: pathFrom(selectedPoints, x, y), class: "selected-line" }));
         selectedPoints.forEach(point => {
-          const dot = svgEl("circle", { cx: x(point.day), cy: y(point.value), r: 4.8, fill: "var(--cu-gold)", stroke: "var(--cu-black)", "stroke-width": 1.3, class: "selected-point" });
-          dot.appendChild(svgEl("title", {})).textContent = `${selected} day ${roundDay(point.day)}: ${exactValue(point.value, unit)}`;
-          attachLinePointTooltip(dot, selected, point, unit);
+          const isOutlier = isLineOutlier(point);
+          const dot = svgEl("circle", { cx: x(point.day), cy: y(point.value), r: isOutlier ? 5.8 : 4.8, fill: isOutlier ? "var(--alert-red)" : "var(--cu-gold)", stroke: "var(--cu-black)", "stroke-width": isOutlier ? 1.7 : 1.3, class: isOutlier ? "selected-point outlier-point" : "selected-point" });
+          dot.appendChild(svgEl("title", {})).textContent = `${selected} day ${roundDay(point.day)}: ${exactValue(point.value, unit)}${isOutlier ? " - outside +/-3SD" : ""}`;
+          attachLinePointTooltip(dot, selected, point, unit, isOutlier);
           svg.appendChild(dot);
         });
       }
@@ -1228,19 +1440,30 @@ HTML_TEMPLATE = r"""<!doctype html>
       xTitle.textContent = "Day";
       svg.appendChild(xTitle);
       const yTitle = svgEl("text", { x: 15, y: margin.top + plotH / 2, transform: `rotate(-90 15 ${margin.top + plotH / 2})`, "text-anchor": "middle", class: "axis-title" });
-      yTitle.textContent = unit === "percent" ? "Viability" : "Live cell concentration";
+      yTitle.textContent = unit === "percent" ? "Viability (%)" : "Concentration (cells/mL)";
       svg.appendChild(yTitle);
 
       container.innerHTML = "";
       container.appendChild(svg);
     }
 
-    function renderFlowChart(container, metric, unit = "percent", sdSelect) {
-      const { rows, bars, avg, sd } = flowData(metric);
+    function renderFlowChart(container, metric, unit = "percent", sdSelect, alertEl, specAlertEl) {
+      const { rows, bars, avg, sd, selectedBar } = flowData(metric);
       const sdMultiplier = selectedLineSdMultiplier(sdSelect);
       const showSd = sdMultiplier > 0;
+      const flagOutliers = sdMultiplier === 3;
+      const flowGraph = metric.includes("QC-4") ? "QC-4 Flow" : metric.includes("QC-5") ? "QC-5 Flow" : "";
+      const specs = flowGraph ? matchingSpecs(flowGraph, metric) : [];
+      const spec = flowGraph ? selectedSpec(flowGraph, metric, selectedBar ? selectedBar.batch : selectedBatch()) : null;
+      const specFailed = Boolean(spec && selectedBar && Number.isFinite(selectedBar.value) && selectedBar.value < spec.value);
+      const isFlowOutlier = bar => Boolean(flagOutliers && bar.kind === "selected" && isOutsideSdRange(bar.value, avg, sd));
+      const hasOutlier = bars.some(isFlowOutlier);
+      setOutlierAlert(alertEl, hasOutlier);
+      setOutlierAlert(specAlertEl, specFailed);
 
       if (!metric || !bars.length) {
+        setOutlierAlert(alertEl, false);
+        setOutlierAlert(specAlertEl, false);
         renderEmpty(container, "No flow data is available for this phase and filter combination.");
         return;
       }
@@ -1251,13 +1474,15 @@ HTML_TEMPLATE = r"""<!doctype html>
       const plotW = width - margin.left - margin.right;
       const plotH = height - margin.top - margin.bottom;
       const refMax = Number.isFinite(avg) ? avg + sd * (showSd ? sdMultiplier : 0) : 0;
-      const rawMax = Math.max(0, ...bars.map(bar => bar.value).filter(Number.isFinite), refMax);
+      const specMax = Math.max(0, ...specs.map(item => item.value).filter(Number.isFinite));
+      const rawMax = Math.max(0, ...bars.map(bar => bar.value).filter(Number.isFinite), refMax, specMax);
       const yMax = unit === "percent" ? Math.min(1, Math.max(0.05, rawMax * 1.14)) : rawMax * 1.1 || 1;
       const step = plotW / Math.max(1, bars.length);
       const barW = Math.min(28, Math.max(9, step * 0.62));
       const x = index => margin.left + step * index + step / 2;
       const y = value => margin.top + plotH - (value / yMax) * plotH;
       const svg = svgEl("svg", { viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": shortMetric(metric) });
+      const frontLabels = [];
 
       for (let i = 0; i <= 5; i++) {
         const value = (yMax / 5) * i;
@@ -1269,25 +1494,55 @@ HTML_TEMPLATE = r"""<!doctype html>
       }
 
       if (showSd && Number.isFinite(avg)) {
-        [avg + sd * sdMultiplier, avg - sd * sdMultiplier].forEach(value => {
+        [
+          { value: avg + sd * sdMultiplier, offset: -6 },
+          { value: avg - sd * sdMultiplier, offset: 12 }
+        ].forEach(reference => {
+          const value = reference.value;
           if (value < 0 || value > yMax) return;
-          svg.appendChild(svgEl("line", { x1: margin.left, x2: width - margin.right, y1: y(value), y2: y(value), class: "sd-line" }));
+          const yy = y(value);
+          svg.appendChild(svgEl("line", { x1: margin.left, x2: width - margin.right, y1: yy, y2: yy, class: "sd-line" }));
+          const labelY = Math.min(height - margin.bottom - 4, Math.max(margin.top + 10, yy + reference.offset));
+          const label = svgEl("text", { x: width - margin.right - 6, y: labelY, "text-anchor": "end", class: "sd-label" });
+          label.textContent = formatValue(value, unit);
+          frontLabels.push(label);
         });
       }
+
+      specs.forEach(item => {
+        if (!Number.isFinite(item.value) || item.value < 0 || item.value > yMax) return;
+        const indexes = bars
+          .map((bar, index) => specAppliesToBatch(item, bar.batch) ? index : -1)
+          .filter(index => index >= 0);
+        if (!indexes.length) return;
+        const first = Math.min(...indexes);
+        const last = Math.max(...indexes);
+        const x1 = Math.max(margin.left, x(first) - step / 2 + 1);
+        const x2 = Math.min(width - margin.right, x(last) + step / 2 - 1);
+        const specLabel = drawSpecLine(svg, item, x1, x2, y, unit, x2 - 4, true);
+        if (specLabel) frontLabels.push(specLabel);
+      });
 
       bars.forEach((bar, index) => {
         const xx = x(index);
         const yy = y(bar.value);
+        const isOutlier = isFlowOutlier(bar);
+        const isSpecFailure = Boolean(bar.kind === "selected" && specFailed);
+        const isFlagged = isOutlier || isSpecFailure;
         const rect = svgEl("rect", {
           x: xx - barW / 2,
           y: yy,
           width: barW,
           height: Math.max(1, height - margin.bottom - yy),
           rx: 2,
-          class: bar.kind === "selected" ? "selected-bar" : "hist-bar"
+          class: `${bar.kind === "selected" ? "selected-bar" : "hist-bar"}${isFlagged ? " outlier-bar" : ""}`
         });
-        rect.appendChild(svgEl("title", {})).textContent = `${bar.batch}: ${exactValue(bar.value, unit)}`;
-        attachFlowTooltip(rect, bar, unit);
+        const titleStatus = [
+          isOutlier ? "outside +/-3SD" : "",
+          isSpecFailure ? "does not meet specification" : ""
+        ].filter(Boolean).join("; ");
+        rect.appendChild(svgEl("title", {})).textContent = `${bar.batch}: ${exactValue(bar.value, unit)}${titleStatus ? ` - ${titleStatus}` : ""}`;
+        attachFlowTooltip(rect, bar, unit, isOutlier, isSpecFailure);
         svg.appendChild(rect);
 
         const label = svgEl("text", {
@@ -1306,14 +1561,16 @@ HTML_TEMPLATE = r"""<!doctype html>
         svg.appendChild(svgEl("line", { x1: margin.left, x2: width - margin.right, y1: yy, y2: yy, class: "flow-average-line" }));
         const label = svgEl("text", { x: width - margin.right, y: yy - 6, "text-anchor": "end", class: "sd-label" });
         label.textContent = `Avg ${formatValue(avg, unit)}`;
-        svg.appendChild(label);
+        frontLabels.push(label);
       }
+
+      appendReferenceLabels(svg, frontLabels, margin.top + 10, height - margin.bottom - 4);
 
       svg.appendChild(svgEl("line", { x1: margin.left, x2: width - margin.right, y1: height - margin.bottom, y2: height - margin.bottom, class: "axis-line" }));
       svg.appendChild(svgEl("line", { x1: margin.left, x2: margin.left, y1: margin.top, y2: height - margin.bottom, class: "axis-line" }));
 
       const yTitle = svgEl("text", { x: 14, y: margin.top + plotH / 2, transform: `rotate(-90 14 ${margin.top + plotH / 2})`, "text-anchor": "middle", class: "axis-title" });
-      yTitle.textContent = "Flow result";
+      yTitle.textContent = "CAR Transgene Expression (%CD3+/CAR+)";
       svg.appendChild(yTitle);
 
       container.innerHTML = "";
@@ -1334,10 +1591,10 @@ HTML_TEMPLATE = r"""<!doctype html>
     function render() {
       refreshFlowMetricOptions();
       updateKpis();
-      renderLineChart(els.liveChart, "Live cell concentration vs day", "Live Cell Concentration", "scientific", els.liveSd);
-      renderLineChart(els.viabilityChart, "Viability vs day", "Viabilities", "percent", els.viabilitySd);
-      renderFlowChart(els.qc4Chart, els.qc4Metric.value, "percent", els.qc4Sd);
-      renderFlowChart(els.qc5Chart, els.qc5Metric.value, "percent", els.qc5Sd);
+      renderLineChart(els.liveChart, "Live cell concentration vs day", "Live Cell Concentration", "scientific", els.liveSd, els.liveAlert);
+      renderLineChart(els.viabilityChart, "Viability vs day", "Viabilities", "percent", els.viabilitySd, els.viabilityAlert);
+      renderFlowChart(els.qc4Chart, els.qc4Metric.value, "percent", els.qc4Sd, els.qc4Alert, els.qc4SpecAlert);
+      renderFlowChart(els.qc5Chart, els.qc5Metric.value, "percent", els.qc5Sd, els.qc5Alert, els.qc5SpecAlert);
     }
 
     setupControls();
