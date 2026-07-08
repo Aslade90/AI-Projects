@@ -328,6 +328,75 @@ HTML_TEMPLATE = r"""<!doctype html>
 
     .print-button:hover { background: #252525; }
 
+    .status-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin: 16px 0 18px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      border-top: 5px solid var(--cu-black);
+      background: #ffffff;
+    }
+
+    .status-item {
+      min-width: 0;
+      padding: 8px 10px;
+      border-left: 3px solid var(--cu-gold);
+      background: var(--canvas);
+    }
+
+    .status-label {
+      display: block;
+      color: var(--cu-dark-gray);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .04em;
+      line-height: 1.2;
+      text-transform: uppercase;
+    }
+
+    .status-value {
+      display: inline-flex;
+      align-items: center;
+      margin-top: 7px;
+      padding: 4px 9px;
+      border: 1px solid rgba(207, 184, 124, .72);
+      border-radius: 999px;
+      background: rgba(207, 184, 124, .28);
+      color: var(--cu-black);
+      font-size: 14px;
+      font-weight: 850;
+      line-height: 1.2;
+    }
+
+    .status-value.good {
+      color: #155b45;
+      background: rgba(40, 116, 95, .12);
+      border-color: rgba(40, 116, 95, .34);
+    }
+
+    .status-value.warn {
+      color: #7a1b14;
+      background: rgba(180, 35, 24, .09);
+      border-color: rgba(180, 35, 24, .34);
+    }
+
+    .status-value.neutral {
+      color: var(--cu-dark-gray);
+      background: rgba(188, 188, 188, .2);
+      border-color: rgba(188, 188, 188, .6);
+    }
+
+    .status-note {
+      margin-top: 6px;
+      color: var(--ink-soft);
+      font-size: 11px;
+      font-weight: 650;
+      line-height: 1.25;
+    }
+
     .summary {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -671,6 +740,7 @@ HTML_TEMPLATE = r"""<!doctype html>
     @media (max-width: 1050px) {
       .grid-2,
       .grid-3,
+      .status-strip,
       .summary {
         grid-template-columns: 1fr;
       }
@@ -737,6 +807,26 @@ HTML_TEMPLATE = r"""<!doctype html>
         <select id="batchSelect"></select>
       </label>
       <button class="print-button" type="button" onclick="window.print()">Print / PDF</button>
+    </div>
+
+    <div class="status-strip" aria-label="Executive status summary">
+      <div class="status-item">
+        <span class="status-label">Run Status</span>
+        <span class="status-value neutral" id="statusRun">-</span>
+      </div>
+      <div class="status-item">
+        <span class="status-label">Specification Status</span>
+        <span class="status-value neutral" id="statusSpec">-</span>
+      </div>
+      <div class="status-item">
+        <span class="status-label">Historical Range</span>
+        <span class="status-value neutral" id="statusHistorical">-</span>
+        <div class="status-note">Historical Range limits are +/- 3SD</div>
+      </div>
+      <div class="status-item">
+        <span class="status-label">Number of 3SD Excursions</span>
+        <span class="status-value neutral" id="statusExcursions">-</span>
+      </div>
     </div>
 
     <div class="summary" aria-label="Current report summary">
@@ -898,7 +988,11 @@ HTML_TEMPLATE = r"""<!doctype html>
       qc4Metric: document.getElementById("qc4Metric"),
       qc5Metric: document.getElementById("qc5Metric"),
       qc4Sd: document.getElementById("qc4SdSelect"),
-      qc5Sd: document.getElementById("qc5SdSelect")
+      qc5Sd: document.getElementById("qc5SdSelect"),
+      statusRun: document.getElementById("statusRun"),
+      statusSpec: document.getElementById("statusSpec"),
+      statusHistorical: document.getElementById("statusHistorical"),
+      statusExcursions: document.getElementById("statusExcursions")
     };
 
     const chartTooltip = document.createElement("div");
@@ -1041,6 +1135,19 @@ HTML_TEMPLATE = r"""<!doctype html>
       return Number.isFinite(row.value) ? formatValue(row.value, "count") : missingText;
     }
 
+    function selectedAdditionalHasValue(measureType) {
+      const selected = selectedBatch();
+      if (!selected) return false;
+      const row = currentRows().find(item =>
+        item.batch === selected &&
+        item.category === "Additional Data" &&
+        item.type === measureType
+      );
+      if (!row) return false;
+      const display = row.displayValue === null || row.displayValue === undefined ? "" : String(row.displayValue).trim();
+      return display !== "" || Number.isFinite(row.value);
+    }
+
     function selectedLineSdMultiplier(select) {
       return Number(select.value);
     }
@@ -1065,6 +1172,21 @@ HTML_TEMPLATE = r"""<!doctype html>
     function selectedSpec(graph, measurementType = "", batch = selectedBatch()) {
       const specs = matchingSpecs(graph, measurementType);
       return specs.find(spec => specAppliesToBatch(spec, batch)) || specs[0] || null;
+    }
+
+    function latestSpec(graphs, measurementType = "") {
+      const graphList = Array.isArray(graphs) ? graphs : [graphs];
+      const specs = DATA.specs.filter(spec =>
+        spec.construct === els.construct.value &&
+        spec.project === els.project.value &&
+        graphList.includes(spec.graph) &&
+        (!measurementType || spec.type === measurementType)
+      );
+      if (!specs.length) return null;
+      return specs
+        .slice()
+        .sort((a, b) => (a.startBatch || "").localeCompare(b.startBatch || ""))
+        .at(-1);
     }
 
     function roundDay(day) {
@@ -1577,6 +1699,80 @@ HTML_TEMPLATE = r"""<!doctype html>
       container.appendChild(svg);
     }
 
+    function setStatus(el, text, state = "neutral") {
+      if (!el) return;
+      el.textContent = text;
+      el.className = `status-value ${state}`;
+    }
+
+    function selectedLineExcursions(category) {
+      const { selectedPoints, stats } = lineData(category);
+      const statsByDay = new Map(
+        stats
+          .filter(point => lineSdDays.has(point.day))
+          .map(point => [point.day, point])
+      );
+      return selectedPoints.filter(point => {
+        const dayStat = statsByDay.get(point.day);
+        return dayStat && isOutsideSdRange(point.value, dayStat.mean, dayStat.sd, 3);
+      });
+    }
+
+    function selectedFlowExcursions(metric) {
+      if (!metric) return [];
+      const { selectedBar, avg, sd } = flowData(metric);
+      if (!selectedBar) return [];
+      return isOutsideSdRange(selectedBar.value, avg, sd, 3) ? [selectedBar] : [];
+    }
+
+    function selectedSpecFailures() {
+      const failures = [];
+
+      const liveSpec = latestSpec(["Live Cell Concentration vs Day", "Live Cell Concentration"]);
+      if (liveSpec && Number.isFinite(liveSpec.value)) {
+        const { selectedPoints } = lineData("Live Cell Concentration");
+        const lastPoint = selectedPoints.slice().sort((a, b) => a.day - b.day).at(-1);
+        if (lastPoint && Number.isFinite(lastPoint.value) && lastPoint.value < liveSpec.value) {
+          failures.push(lastPoint);
+        }
+      }
+
+      if (els.qc5Metric.value) {
+        const qc5Spec = latestSpec("QC-5 Flow", els.qc5Metric.value);
+        const { selectedBar } = flowData(els.qc5Metric.value);
+        if (qc5Spec && selectedBar && Number.isFinite(selectedBar.value) && selectedBar.value < qc5Spec.value) {
+          failures.push(selectedBar);
+        }
+      }
+
+      return failures;
+    }
+
+    function updateExecutiveStatus() {
+      const selected = selectedBatch();
+      if (!selected) {
+        setStatus(els.statusRun, "No Batch", "neutral");
+        setStatus(els.statusSpec, "Not Checked", "neutral");
+        setStatus(els.statusHistorical, "Not Checked", "neutral");
+        setStatus(els.statusExcursions, "Not Checked", "neutral");
+        return;
+      }
+
+      const specFailures = selectedSpecFailures();
+      const excursions = [
+        ...selectedLineExcursions("Live Cell Concentration"),
+        ...selectedLineExcursions("Viabilities"),
+        ...selectedFlowExcursions(els.qc4Metric.value),
+        ...selectedFlowExcursions(els.qc5Metric.value)
+      ];
+      const isCompleted = selectedAdditionalHasValue("Date of Manufacture");
+
+      setStatus(els.statusRun, isCompleted ? "Completed" : "Ongoing", isCompleted ? "good" : "neutral");
+      setStatus(els.statusSpec, specFailures.length ? "Spec Review" : "Meets Specs", specFailures.length ? "warn" : "good");
+      setStatus(els.statusHistorical, excursions.length ? "Outside Range" : "Within Range", excursions.length ? "warn" : "good");
+      setStatus(els.statusExcursions, excursions.length ? `${excursions.length} Found` : "None", excursions.length ? "warn" : "good");
+    }
+
     function updateKpis() {
       const selected = selectedBatch();
       const rows = currentRows();
@@ -1590,6 +1786,7 @@ HTML_TEMPLATE = r"""<!doctype html>
 
     function render() {
       refreshFlowMetricOptions();
+      updateExecutiveStatus();
       updateKpis();
       renderLineChart(els.liveChart, "Live cell concentration vs day", "Live Cell Concentration", "scientific", els.liveSd, els.liveAlert);
       renderLineChart(els.viabilityChart, "Viability vs day", "Viabilities", "percent", els.viabilitySd, els.viabilityAlert);
