@@ -190,6 +190,7 @@ def build_payload() -> dict:
         "rows": rows,
         "flowMetrics": flow_metrics,
         "specs": load_specs(),
+        "sourceWorkbookName": WORKBOOK.name,
     }
 
 
@@ -219,6 +220,7 @@ HTML_TEMPLATE = r"""<!doctype html>
       --band-1: rgba(207, 184, 124, 0.26);
       --band-2: rgba(207, 184, 124, 0.26);
       --band-3: rgba(207, 184, 124, 0.26);
+      --box-shadow: 0 10px 24px rgba(0, 0, 0, 0.07);
       font-family: "Source Sans 3", "Segoe UI", Roboto, Arial, sans-serif;
       color: var(--cu-black);
       background: var(--canvas);
@@ -285,7 +287,7 @@ HTML_TEMPLATE = r"""<!doctype html>
       background: rgba(255, 255, 255, 0.96);
       border: 1px solid var(--line);
       border-radius: 8px;
-      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.07);
+      box-shadow: var(--box-shadow);
       backdrop-filter: blur(10px);
     }
 
@@ -371,8 +373,9 @@ HTML_TEMPLATE = r"""<!doctype html>
       padding: 12px;
       border: 1px solid var(--line);
       border-radius: 8px;
-      border-top: 5px solid var(--cu-black);
+      border-top: 5px solid var(--cu-gold);
       background: #ffffff;
+      box-shadow: var(--box-shadow);
     }
 
     .status-item {
@@ -444,6 +447,7 @@ HTML_TEMPLATE = r"""<!doctype html>
       background: var(--surface);
       border: 1px solid var(--line);
       border-radius: 8px;
+      box-shadow: var(--box-shadow);
     }
 
     .kpi {
@@ -1016,8 +1020,8 @@ HTML_TEMPLATE = r"""<!doctype html>
     </section>
 
     <footer>
-      Source workbook: <span id="sourceWorkbook"></span><br>
-      Generated: <span id="generatedAt"></span>. Standard-deviation lower limits below zero are omitted from the dotted reference lines and noted in each chart when applicable.
+      Source: <span id="sourceWorkbook"></span> | Generated: <span id="generatedAt"></span><br>
+      Standard-deviation lower limits below zero are omitted from the dotted reference lines and noted in each chart when applicable.
     </footer>
   </div>
 
@@ -1116,7 +1120,7 @@ HTML_TEMPLATE = r"""<!doctype html>
       });
       els.refreshReportButton.addEventListener("click", refreshReportFromSpreadsheet);
 
-      document.getElementById("sourceWorkbook").textContent = DATA.sourceWorkbook;
+      document.getElementById("sourceWorkbook").textContent = DATA.sourceWorkbookName || DATA.sourceWorkbook;
       document.getElementById("generatedAt").textContent = DATA.generatedAt;
     }
 
