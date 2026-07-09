@@ -9,7 +9,7 @@ import pandas as pd
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
-WORKBOOK = Path(r"C:\Users\sladeand\Desktop\Codex Manufacturing Data.xlsx")
+WORKBOOK = PROJECT_DIR / "Input" / "Codex Manufacturing Data v1.2.xlsx"
 LOGO = PROJECT_DIR / "assets" / "Logo.jpg"
 OUTPUT = PROJECT_DIR / "report" / "manufacturing_report.html"
 
@@ -289,6 +289,13 @@ HTML_TEMPLATE = r"""<!doctype html>
       backdrop-filter: blur(10px);
     }
 
+    .toolbar-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: flex-end;
+    }
+
     label {
       display: grid;
       gap: 6px;
@@ -315,18 +322,46 @@ HTML_TEMPLATE = r"""<!doctype html>
       min-height: 42px;
     }
 
-    .print-button {
+    .print-button,
+    .refresh-button {
       border: 0;
       border-radius: 6px;
-      background: var(--cu-black);
-      color: #ffffff;
       font-weight: 800;
       min-height: 42px;
       padding: 0 18px;
       cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .print-button {
+      background: var(--cu-black);
+      color: #ffffff;
     }
 
     .print-button:hover { background: #252525; }
+
+    .refresh-button {
+      background: var(--cu-gold);
+      color: var(--cu-black);
+      border: 1px solid rgba(0, 0, 0, .14);
+    }
+
+    .refresh-button:hover { background: var(--cu-gold-dark); }
+
+    .refresh-button:disabled {
+      cursor: wait;
+      opacity: .62;
+    }
+
+    .refresh-status {
+      min-width: 130px;
+      color: var(--cu-dark-gray);
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1.2;
+      text-transform: none;
+      letter-spacing: 0;
+    }
 
     .status-strip {
       display: grid;
@@ -682,6 +717,16 @@ HTML_TEMPLATE = r"""<!doctype html>
     .outlier-bar:hover,
     .outlier-bar:focus { fill: var(--alert-red); }
 
+    .selected-bar-label {
+      fill: var(--cu-black);
+      font-size: 11px;
+      font-weight: 850;
+      paint-order: stroke;
+      stroke: #ffffff;
+      stroke-width: 3px;
+      stroke-linejoin: round;
+    }
+
     .legend {
       display: flex;
       flex-wrap: wrap;
@@ -749,8 +794,14 @@ HTML_TEMPLATE = r"""<!doctype html>
         grid-template-columns: 1fr 1fr;
       }
 
-      .print-button {
+      .toolbar-actions {
         grid-column: 1 / -1;
+        justify-content: flex-start;
+      }
+
+      .print-button,
+      .refresh-button {
+        flex: 0 0 auto;
       }
     }
 
@@ -779,7 +830,7 @@ HTML_TEMPLATE = r"""<!doctype html>
 
     @media print {
       body { background: #ffffff; }
-      .toolbar, .print-button { display: none; }
+      .toolbar, .print-button, .refresh-button { display: none; }
       .page { width: 100%; padding: 0; }
       .panel, .kpi { break-inside: avoid; }
       .chart { min-height: 300px; }
@@ -806,7 +857,11 @@ HTML_TEMPLATE = r"""<!doctype html>
       <label for="batchSelect">Batch of interest
         <select id="batchSelect"></select>
       </label>
-      <button class="print-button" type="button" onclick="window.print()">Print / PDF</button>
+      <div class="toolbar-actions">
+        <button class="refresh-button" id="refreshReportButton" type="button">Refresh Data</button>
+        <button class="print-button" type="button" onclick="window.print()">Print / PDF</button>
+        <span class="refresh-status" id="refreshReportStatus" aria-live="polite"></span>
+      </div>
     </div>
 
     <div class="status-strip" aria-label="Executive status summary">
@@ -992,7 +1047,9 @@ HTML_TEMPLATE = r"""<!doctype html>
       statusRun: document.getElementById("statusRun"),
       statusSpec: document.getElementById("statusSpec"),
       statusHistorical: document.getElementById("statusHistorical"),
-      statusExcursions: document.getElementById("statusExcursions")
+      statusExcursions: document.getElementById("statusExcursions"),
+      refreshReportButton: document.getElementById("refreshReportButton"),
+      refreshReportStatus: document.getElementById("refreshReportStatus")
     };
 
     const chartTooltip = document.createElement("div");
@@ -1057,9 +1114,34 @@ HTML_TEMPLATE = r"""<!doctype html>
       [els.batch, els.liveSd, els.viabilitySd, els.qc4Metric, els.qc5Metric, els.qc4Sd, els.qc5Sd].forEach(control => {
         control.addEventListener("change", render);
       });
+      els.refreshReportButton.addEventListener("click", refreshReportFromSpreadsheet);
 
       document.getElementById("sourceWorkbook").textContent = DATA.sourceWorkbook;
       document.getElementById("generatedAt").textContent = DATA.generatedAt;
+    }
+
+    async function refreshReportFromSpreadsheet() {
+      const endpoint = window.location.protocol === "file:"
+        ? "http://127.0.0.1:8765/rebuild-report"
+        : "/rebuild-report";
+      els.refreshReportButton.disabled = true;
+      els.refreshReportStatus.textContent = "Refreshing...";
+
+      try {
+        const response = await fetch(endpoint, { method: "POST" });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.ok) {
+          throw new Error(result.error || `Refresh failed with status ${response.status}`);
+        }
+        els.refreshReportStatus.textContent = "Updated. Reloading...";
+        const url = new URL(window.location.href);
+        url.searchParams.set("updated", Date.now().toString());
+        window.location.replace(url.toString());
+      } catch (error) {
+        els.refreshReportStatus.textContent = "Refresh failed";
+        alert(`Unable to refresh the report. Make sure the Manufacturing Report server is running, then try again.\n\n${error.message}`);
+        els.refreshReportButton.disabled = false;
+      }
     }
 
     function refreshProjectOptions(preferredProject) {
@@ -1152,12 +1234,28 @@ HTML_TEMPLATE = r"""<!doctype html>
       return Number(select.value);
     }
 
+    function normalizedMeasureName(name) {
+      return String(name || "")
+        .toUpperCase()
+        .replace(/\bADDITIONAL ASSAYS\b/g, "")
+        .replace(/\bTARGET FLOW\b/g, "")
+        .replace(/\bPRE-HARVEST FLOW\b/g, "")
+        .replace(/\bPOST CRYO\b/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
+    function measurementMatches(specType, measurementType) {
+      if (!measurementType) return true;
+      return normalizedMeasureName(specType) === normalizedMeasureName(measurementType);
+    }
+
     function matchingSpecs(graph, measurementType = "") {
       return DATA.specs.filter(spec =>
         spec.construct === els.construct.value &&
         spec.project === els.project.value &&
         spec.graph === graph &&
-        (!measurementType || spec.type === measurementType)
+        measurementMatches(spec.type, measurementType)
       );
     }
 
@@ -1180,7 +1278,7 @@ HTML_TEMPLATE = r"""<!doctype html>
         spec.construct === els.construct.value &&
         spec.project === els.project.value &&
         graphList.includes(spec.graph) &&
-        (!measurementType || spec.type === measurementType)
+        measurementMatches(spec.type, measurementType)
       );
       if (!specs.length) return null;
       return specs
@@ -1592,7 +1690,7 @@ HTML_TEMPLATE = r"""<!doctype html>
 
       const width = 1120;
       const height = 410;
-      const margin = { top: 26, right: 26, bottom: 116, left: 58 };
+      const margin = { top: 26, right: 118, bottom: 116, left: 58 };
       const plotW = width - margin.left - margin.right;
       const plotH = height - margin.top - margin.bottom;
       const refMax = Number.isFinite(avg) ? avg + sd * (showSd ? sdMultiplier : 0) : 0;
@@ -1605,11 +1703,13 @@ HTML_TEMPLATE = r"""<!doctype html>
       const y = value => margin.top + plotH - (value / yMax) * plotH;
       const svg = svgEl("svg", { viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": shortMetric(metric) });
       const frontLabels = [];
+      const plotRight = width - margin.right;
+      const referenceLabelX = plotRight + 10;
 
       for (let i = 0; i <= 5; i++) {
         const value = (yMax / 5) * i;
         const yy = y(value);
-        svg.appendChild(svgEl("line", { x1: margin.left, x2: width - margin.right, y1: yy, y2: yy, class: "grid-line" }));
+        svg.appendChild(svgEl("line", { x1: margin.left, x2: plotRight, y1: yy, y2: yy, class: "grid-line" }));
         const label = svgEl("text", { x: margin.left - 9, y: yy + 4, "text-anchor": "end", class: "tick-label" });
         label.textContent = formatValue(value, unit);
         svg.appendChild(label);
@@ -1623,9 +1723,9 @@ HTML_TEMPLATE = r"""<!doctype html>
           const value = reference.value;
           if (value < 0 || value > yMax) return;
           const yy = y(value);
-          svg.appendChild(svgEl("line", { x1: margin.left, x2: width - margin.right, y1: yy, y2: yy, class: "sd-line" }));
+          svg.appendChild(svgEl("line", { x1: margin.left, x2: plotRight, y1: yy, y2: yy, class: "sd-line" }));
           const labelY = Math.min(height - margin.bottom - 4, Math.max(margin.top + 10, yy + reference.offset));
-          const label = svgEl("text", { x: width - margin.right - 6, y: labelY, "text-anchor": "end", class: "sd-label" });
+          const label = svgEl("text", { x: referenceLabelX, y: labelY, "text-anchor": "start", class: "sd-label" });
           label.textContent = formatValue(value, unit);
           frontLabels.push(label);
         });
@@ -1640,9 +1740,12 @@ HTML_TEMPLATE = r"""<!doctype html>
         const first = Math.min(...indexes);
         const last = Math.max(...indexes);
         const x1 = Math.max(margin.left, x(first) - step / 2 + 1);
-        const x2 = Math.min(width - margin.right, x(last) + step / 2 - 1);
-        const specLabel = drawSpecLine(svg, item, x1, x2, y, unit, x2 - 4, true);
-        if (specLabel) frontLabels.push(specLabel);
+        const x2 = Math.min(plotRight, x(last) + step / 2 - 1);
+        const specLabel = drawSpecLine(svg, item, x1, x2, y, unit, referenceLabelX, true);
+        if (specLabel) {
+          specLabel.setAttribute("text-anchor", "start");
+          frontLabels.push(specLabel);
+        }
       });
 
       bars.forEach((bar, index) => {
@@ -1667,6 +1770,17 @@ HTML_TEMPLATE = r"""<!doctype html>
         attachFlowTooltip(rect, bar, unit, isOutlier, isSpecFailure);
         svg.appendChild(rect);
 
+        if (bar.kind === "selected") {
+          const valueLabel = svgEl("text", {
+            x: xx,
+            y: Math.max(margin.top + 12, yy - 8),
+            "text-anchor": "middle",
+            class: "selected-bar-label"
+          });
+          valueLabel.textContent = formatValue(bar.value, unit);
+          svg.appendChild(valueLabel);
+        }
+
         const label = svgEl("text", {
           x: xx,
           y: height - margin.bottom + 15,
@@ -1680,15 +1794,15 @@ HTML_TEMPLATE = r"""<!doctype html>
 
       if (Number.isFinite(avg)) {
         const yy = y(avg);
-        svg.appendChild(svgEl("line", { x1: margin.left, x2: width - margin.right, y1: yy, y2: yy, class: "flow-average-line" }));
-        const label = svgEl("text", { x: width - margin.right, y: yy - 6, "text-anchor": "end", class: "sd-label" });
+        svg.appendChild(svgEl("line", { x1: margin.left, x2: plotRight, y1: yy, y2: yy, class: "flow-average-line" }));
+        const label = svgEl("text", { x: referenceLabelX, y: yy - 6, "text-anchor": "start", class: "sd-label" });
         label.textContent = `Avg ${formatValue(avg, unit)}`;
         frontLabels.push(label);
       }
 
       appendReferenceLabels(svg, frontLabels, margin.top + 10, height - margin.bottom - 4);
 
-      svg.appendChild(svgEl("line", { x1: margin.left, x2: width - margin.right, y1: height - margin.bottom, y2: height - margin.bottom, class: "axis-line" }));
+      svg.appendChild(svgEl("line", { x1: margin.left, x2: plotRight, y1: height - margin.bottom, y2: height - margin.bottom, class: "axis-line" }));
       svg.appendChild(svgEl("line", { x1: margin.left, x2: margin.left, y1: margin.top, y2: height - margin.bottom, class: "axis-line" }));
 
       const yTitle = svgEl("text", { x: 14, y: margin.top + plotH / 2, transform: `rotate(-90 14 ${margin.top + plotH / 2})`, "text-anchor": "middle", class: "axis-title" });

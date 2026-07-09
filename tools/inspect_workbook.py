@@ -7,7 +7,8 @@ from pathlib import Path
 import pandas as pd
 
 
-WORKBOOK = Path(r"C:\Users\sladeand\Desktop\Codex Manufacturing Data.xlsx")
+PROJECT_DIR = Path(__file__).resolve().parents[1]
+WORKBOOK = PROJECT_DIR / "Input" / "Codex Manufacturing Data v1.2.xlsx"
 
 
 def main() -> None:
