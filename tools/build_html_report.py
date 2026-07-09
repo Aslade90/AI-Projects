@@ -478,6 +478,67 @@ HTML_TEMPLATE = r"""<!doctype html>
       line-height: 1.35;
     }
 
+    .print-run-summary {
+      display: none;
+    }
+
+    .run-summary-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: #ffffff;
+    }
+
+    .run-summary-item {
+      min-width: 0;
+      padding: 10px 12px;
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .run-summary-item:nth-child(5n) {
+      border-right: 0;
+    }
+
+    .run-summary-item:nth-last-child(-n + 5) {
+      border-bottom: 0;
+    }
+
+    .run-summary-label {
+      color: var(--cu-dark-gray);
+      font-size: 10px;
+      font-weight: 850;
+      letter-spacing: .04em;
+      line-height: 1.2;
+      text-transform: uppercase;
+    }
+
+    .run-summary-value {
+      margin-top: 4px;
+      color: var(--cu-black);
+      font-size: 16px;
+      font-weight: 850;
+      line-height: 1.15;
+    }
+
+    .run-summary-note {
+      margin-top: 3px;
+      color: var(--ink-soft);
+      font-size: 10px;
+      font-weight: 650;
+      line-height: 1.25;
+    }
+
+    .run-summary-value.warn {
+      color: var(--alert-red-dark);
+    }
+
+    .print-data-table {
+      display: none;
+    }
+
     section {
       margin-top: 26px;
     }
@@ -740,6 +801,10 @@ HTML_TEMPLATE = r"""<!doctype html>
       font-size: 12px;
     }
 
+    .line-panel .legend {
+      justify-content: center;
+    }
+
     .legend-item {
       display: inline-flex;
       align-items: center;
@@ -833,11 +898,275 @@ HTML_TEMPLATE = r"""<!doctype html>
     }
 
     @media print {
-      body { background: #ffffff; }
-      .toolbar, .print-button, .refresh-button { display: none; }
-      .page { width: 100%; padding: 0; }
-      .panel, .kpi { break-inside: avoid; }
-      .chart { min-height: 300px; }
+      @page {
+        size: letter landscape;
+        margin: .35in;
+      }
+
+      html {
+        print-color-adjust: exact;
+        -webkit-print-color-adjust: exact;
+      }
+
+      body {
+        background: #ffffff;
+      }
+
+      .toolbar,
+      .print-button,
+      .refresh-button,
+      .refresh-status,
+      .chart-tooltip {
+        display: none !important;
+      }
+
+      .page {
+        width: 100%;
+        padding: 0;
+      }
+
+      header {
+        break-inside: avoid;
+        gap: 18px;
+        padding: 0 0 8px;
+        border-bottom-width: 3px;
+      }
+
+      h1 {
+        font-size: 26px;
+      }
+
+      .subtitle {
+        margin-top: 8px;
+        font-size: 11px;
+      }
+
+      .logo {
+        width: 1.35in;
+        max-height: .78in;
+        margin-top: 0;
+      }
+
+      .status-strip,
+      .summary,
+      .print-run-summary,
+      .panel,
+      .kpi,
+      footer {
+        box-shadow: none;
+      }
+
+      .status-strip,
+      .summary,
+      .print-run-summary,
+      .panel,
+      .legend,
+      .chart-alert,
+      footer {
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }
+
+      .status-strip {
+        margin: 8px 0 8px;
+        padding: 6px;
+        gap: 8px;
+        border-top-width: 4px;
+      }
+
+      .status-item {
+        padding: 5px 7px;
+      }
+
+      .status-label {
+        font-size: 9px;
+      }
+
+      .status-value {
+        margin-top: 4px;
+        padding: 3px 7px;
+        font-size: 11px;
+      }
+
+      .status-note {
+        margin-top: 4px;
+        font-size: 9px;
+      }
+
+      .summary {
+        display: none;
+      }
+
+      .kpi {
+        min-height: auto;
+        padding: 10px;
+        border-top-width: 4px;
+      }
+
+      .kpi-value {
+        font-size: 22px;
+      }
+
+      .kpi-foot {
+        font-size: 10px;
+      }
+
+      .print-run-summary {
+        display: block;
+        margin: 8px 0 10px;
+        padding: 8px;
+        border: 1px solid var(--line);
+        border-top: 4px solid var(--cu-gold);
+        border-radius: 8px;
+        background: #ffffff;
+      }
+
+      .print-run-summary h2 {
+        margin-bottom: 7px;
+        font-size: 16px;
+      }
+
+      .run-summary-item {
+        padding: 6px 8px;
+      }
+
+      .run-summary-label,
+      .run-summary-note {
+        font-size: 8px;
+      }
+
+      .run-summary-value {
+        font-size: 13px;
+      }
+
+      section {
+        margin-top: 10px;
+      }
+
+      .section-head {
+        display: none;
+      }
+
+      .grid-2 {
+        grid-template-columns: 1fr;
+        gap: 0;
+      }
+
+      .grid-3 {
+        grid-template-columns: 1fr;
+        gap: 0;
+      }
+
+      .panel {
+        break-before: page;
+        page-break-before: always;
+        min-height: calc(100vh - .7in);
+        padding: 10px;
+        margin-bottom: 0;
+      }
+
+      .line-panel {
+        min-height: auto;
+      }
+
+      .panel-head {
+        margin-bottom: 4px;
+      }
+
+      .line-head h3,
+      .flow-head h3 {
+        font-size: 20px;
+      }
+
+      .line-head,
+      .flow-head {
+        grid-template-columns: 1fr minmax(140px, 190px) minmax(140px, 190px);
+      }
+
+      .line-head {
+        grid-template-columns: 1fr minmax(140px, 190px);
+      }
+
+      label {
+        font-size: 9px;
+        gap: 3px;
+      }
+
+      select {
+        min-height: 26px;
+        padding: 4px 6px;
+        border-color: var(--line);
+        background: #ffffff;
+        font-size: 10px;
+      }
+
+      .chart {
+        min-height: 0;
+      }
+
+      .line-panel .chart svg {
+        width: 100%;
+        max-height: 4.65in;
+      }
+
+      .print-data-table {
+        display: block;
+        width: min(4.2in, 58%);
+        margin: 6px auto 0;
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }
+
+      .print-data-table h4 {
+        margin: 0 0 4px;
+        color: var(--cu-black);
+        font-size: 10px;
+        font-weight: 850;
+        line-height: 1.2;
+      }
+
+      .print-data-table table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 9px;
+        line-height: 1.15;
+      }
+
+      .print-data-table th,
+      .print-data-table td {
+        padding: 3px 6px;
+        border: 1px solid var(--line);
+        text-align: left;
+      }
+
+      .print-data-table th {
+        background: var(--canvas);
+        color: var(--cu-dark-gray);
+        font-weight: 850;
+        text-transform: uppercase;
+      }
+
+      .print-data-table td:last-child,
+      .print-data-table th:last-child {
+        text-align: right;
+      }
+
+      .print-data-empty {
+        color: var(--ink-soft);
+        font-size: 10px;
+        font-weight: 650;
+      }
+
+      .legend {
+        margin-top: 6px;
+        gap: 6px 12px;
+        font-size: 10px;
+      }
+
+      footer {
+        margin-top: 14px;
+        padding-top: 8px;
+      }
     }
   </style>
 </head>
@@ -911,12 +1240,17 @@ HTML_TEMPLATE = r"""<!doctype html>
       </div>
     </div>
 
+    <section class="print-run-summary" aria-labelledby="printRunSummaryTitle">
+      <h2 id="printRunSummaryTitle">Manufacturing Run Summary</h2>
+      <div class="run-summary-grid" id="printRunSummary"></div>
+    </section>
+
     <section aria-labelledby="cellSection">
       <div class="section-head">
         <h2 id="cellSection">Cell Concentration and Viability Data</h2>
       </div>
       <div class="grid-2">
-        <article class="panel">
+        <article class="panel line-panel">
           <div class="panel-head line-head">
             <div>
               <h3>Live Cell Concentration vs Day</h3>
@@ -939,9 +1273,10 @@ HTML_TEMPLATE = r"""<!doctype html>
             <span class="legend-item"><span class="swatch band"></span> SD range</span>
             <span class="legend-item"><span class="swatch dotted"></span> SD limit</span>
           </div>
+          <div class="print-data-table" id="livePrintDataTable"></div>
         </article>
 
-        <article class="panel">
+        <article class="panel line-panel">
           <div class="panel-head line-head">
             <div>
               <h3>Viability vs Day</h3>
@@ -964,6 +1299,7 @@ HTML_TEMPLATE = r"""<!doctype html>
             <span class="legend-item"><span class="swatch band"></span> SD range</span>
             <span class="legend-item"><span class="swatch dotted"></span> SD limit</span>
           </div>
+          <div class="print-data-table" id="viabilityPrintDataTable"></div>
         </article>
       </div>
     </section>
@@ -1034,6 +1370,8 @@ HTML_TEMPLATE = r"""<!doctype html>
       batch: document.getElementById("batchSelect"),
       liveChart: document.getElementById("liveChart"),
       viabilityChart: document.getElementById("viabilityChart"),
+      livePrintDataTable: document.getElementById("livePrintDataTable"),
+      viabilityPrintDataTable: document.getElementById("viabilityPrintDataTable"),
       liveAlert: document.getElementById("liveAlert"),
       viabilityAlert: document.getElementById("viabilityAlert"),
       liveSd: document.getElementById("liveSdSelect"),
@@ -1052,6 +1390,7 @@ HTML_TEMPLATE = r"""<!doctype html>
       statusSpec: document.getElementById("statusSpec"),
       statusHistorical: document.getElementById("statusHistorical"),
       statusExcursions: document.getElementById("statusExcursions"),
+      printRunSummary: document.getElementById("printRunSummary"),
       refreshReportButton: document.getElementById("refreshReportButton"),
       refreshReportStatus: document.getElementById("refreshReportStatus")
     };
@@ -1843,6 +2182,15 @@ HTML_TEMPLATE = r"""<!doctype html>
       return isOutsideSdRange(selectedBar.value, avg, sd, 3) ? [selectedBar] : [];
     }
 
+    function selectedExcursions() {
+      return [
+        ...selectedLineExcursions("Live Cell Concentration"),
+        ...selectedLineExcursions("Viabilities"),
+        ...selectedFlowExcursions(els.qc4Metric.value),
+        ...selectedFlowExcursions(els.qc5Metric.value)
+      ];
+    }
+
     function selectedSpecFailures() {
       const failures = [];
 
@@ -1866,6 +2214,107 @@ HTML_TEMPLATE = r"""<!doctype html>
       return failures;
     }
 
+    function selectedLineSummary(category, unit) {
+      const { selectedPoints } = lineData(category);
+      const lastPoint = selectedPoints.slice().sort((a, b) => a.day - b.day).at(-1);
+      if (!lastPoint || !Number.isFinite(lastPoint.value)) {
+        return { value: "-", note: "No selected-batch data" };
+      }
+      return {
+        value: formatValue(lastPoint.value, unit),
+        note: `Day ${roundDay(lastPoint.day)}`
+      };
+    }
+
+    function updateLinePrintTable(container, category, title, valueLabel, unit) {
+      if (!container) return;
+      const selected = selectedBatch();
+      const { selectedPoints } = lineData(category);
+
+      if (!selected || !selectedPoints.length) {
+        container.innerHTML = `
+          <h4>${escapeHtml(title)}</h4>
+          <div class="print-data-empty">No selected-batch data points available.</div>
+        `;
+        return;
+      }
+
+      const rows = selectedPoints
+        .slice()
+        .sort((a, b) => a.day - b.day)
+        .map(point => `
+          <tr>
+            <td>${escapeHtml(roundDay(point.day))}</td>
+            <td>${escapeHtml(exactValue(point.value, unit))}</td>
+          </tr>
+        `)
+        .join("");
+
+      container.innerHTML = `
+        <h4>${escapeHtml(title)} Data Points - ${escapeHtml(selected)}</h4>
+        <table>
+          <thead>
+            <tr>
+              <th>Day</th>
+              <th>${escapeHtml(valueLabel)}</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+    }
+
+    function selectedFlowSummary(metric) {
+      if (!metric) return { value: "-", note: "No measure selected" };
+      const { selectedBar } = flowData(metric);
+      if (!selectedBar || !Number.isFinite(selectedBar.value)) {
+        return { value: "-", note: shortMetric(metric) };
+      }
+      return {
+        value: formatValue(selectedBar.value, "percent"),
+        note: shortMetric(metric)
+      };
+    }
+
+    function runSummaryItem(label, value, note = "", state = "") {
+      const valueClass = state ? `run-summary-value ${state}` : "run-summary-value";
+      const noteHtml = note ? `<div class="run-summary-note">${escapeHtml(note)}</div>` : "";
+      return `
+        <div class="run-summary-item">
+          <div class="run-summary-label">${escapeHtml(label)}</div>
+          <div class="${valueClass}">${escapeHtml(value)}</div>
+          ${noteHtml}
+        </div>
+      `;
+    }
+
+    function updatePrintRunSummary() {
+      if (!els.printRunSummary) return;
+      const selected = selectedBatch();
+      const qc4 = selectedFlowSummary(els.qc4Metric.value);
+      const qc5 = selectedFlowSummary(els.qc5Metric.value);
+      const viability = selectedLineSummary("Viabilities", "percent");
+      const specFailures = selected ? selectedSpecFailures() : [];
+      const excursions = selected ? selectedExcursions() : [];
+
+      const items = [
+        ["Construct", els.construct.value || "-", ""],
+        ["Project", els.project.value || "-", ""],
+        ["Batch of Interest", selected || "No batch selected", ""],
+        ["Date of Manufacture", selected ? selectedAdditionalValue("Date of Manufacture", "Ongoing") : "-", ""],
+        ["Dose Level", selected ? selectedAdditionalValue("Dose Level", "Not Confirmed") : "-", ""],
+        ["QC-4 Result", selected ? qc4.value : "-", selected ? qc4.note : ""],
+        ["QC-5 Result", selected ? qc5.value : "-", selected ? qc5.note : ""],
+        ["Viability Result", selected ? viability.value : "-", selected ? viability.note : ""],
+        ["Specification Flags", specFailures.length ? `${specFailures.length} flag${specFailures.length === 1 ? "" : "s"}` : "None", "QC-5 and final live-cell checks", specFailures.length ? "warn" : ""],
+        ["Outside +/-3SD Flags", excursions.length ? `${excursions.length} flag${excursions.length === 1 ? "" : "s"}` : "None", "Historical range limits are +/- 3SD", excursions.length ? "warn" : ""]
+      ];
+
+      els.printRunSummary.innerHTML = items
+        .map(([label, value, note, state]) => runSummaryItem(label, value, note, state))
+        .join("");
+    }
+
     function updateExecutiveStatus() {
       const selected = selectedBatch();
       if (!selected) {
@@ -1877,12 +2326,7 @@ HTML_TEMPLATE = r"""<!doctype html>
       }
 
       const specFailures = selectedSpecFailures();
-      const excursions = [
-        ...selectedLineExcursions("Live Cell Concentration"),
-        ...selectedLineExcursions("Viabilities"),
-        ...selectedFlowExcursions(els.qc4Metric.value),
-        ...selectedFlowExcursions(els.qc5Metric.value)
-      ];
+      const excursions = selectedExcursions();
       const isCompleted = selectedAdditionalHasValue("Date of Manufacture");
 
       setStatus(els.statusRun, isCompleted ? "Completed" : "Ongoing", isCompleted ? "good" : "neutral");
@@ -1906,8 +2350,11 @@ HTML_TEMPLATE = r"""<!doctype html>
       refreshFlowMetricOptions();
       updateExecutiveStatus();
       updateKpis();
+      updatePrintRunSummary();
       renderLineChart(els.liveChart, "Live cell concentration vs day", "Live Cell Concentration", "scientific", els.liveSd, els.liveAlert);
       renderLineChart(els.viabilityChart, "Viability vs day", "Viabilities", "percent", els.viabilitySd, els.viabilityAlert);
+      updateLinePrintTable(els.livePrintDataTable, "Live Cell Concentration", "Live Cell Concentration vs Day", "Concentration (cells/mL)", "scientific");
+      updateLinePrintTable(els.viabilityPrintDataTable, "Viabilities", "Viability vs Day", "Viability (%)", "percent");
       renderFlowChart(els.qc4Chart, els.qc4Metric.value, "percent", els.qc4Sd, els.qc4Alert, els.qc4SpecAlert);
       renderFlowChart(els.qc5Chart, els.qc5Metric.value, "percent", els.qc5Sd, els.qc5Alert, els.qc5SpecAlert);
     }
