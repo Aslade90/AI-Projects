@@ -8,6 +8,7 @@ from pathlib import Path
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
+SYNC_SCRIPT = PROJECT_DIR / "tools" / "sync_batch_sheets_to_long_format.py"
 BUILD_SCRIPT = PROJECT_DIR / "tools" / "build_html_report.py"
 HOST = "127.0.0.1"
 PORT = 8765
@@ -32,21 +33,31 @@ class ReportHandler(SimpleHTTPRequestHandler):
             self.send_error(404, "Unknown endpoint")
             return
 
-        result = subprocess.run(
-            [sys.executable, str(BUILD_SCRIPT)],
+        sync_result = subprocess.run(
+            [sys.executable, str(SYNC_SCRIPT)],
             cwd=str(PROJECT_DIR),
             capture_output=True,
             text=True,
         )
 
-        ok = result.returncode == 0
+        if sync_result.returncode == 0:
+            build_result = subprocess.run(
+                [sys.executable, str(BUILD_SCRIPT)],
+                cwd=str(PROJECT_DIR),
+                capture_output=True,
+                text=True,
+            )
+        else:
+            build_result = None
+
+        ok = sync_result.returncode == 0 and build_result is not None and build_result.returncode == 0
         payload = {
             "ok": ok,
-            "stdout": result.stdout,
-            "stderr": result.stderr,
+            "stdout": sync_result.stdout + (build_result.stdout if build_result else ""),
+            "stderr": sync_result.stderr + (build_result.stderr if build_result else ""),
         }
         if not ok:
-            payload["error"] = result.stderr.strip() or result.stdout.strip() or "Report rebuild failed"
+            payload["error"] = payload["stderr"].strip() or payload["stdout"].strip() or "Report rebuild failed"
 
         body = json.dumps(payload, ensure_ascii=True).encode("utf-8")
         self.send_response(200 if ok else 500)
@@ -58,7 +69,7 @@ class ReportHandler(SimpleHTTPRequestHandler):
 
 def main() -> None:
     server = ThreadingHTTPServer((HOST, PORT), ReportHandler)
-    print(f"Serving Manufacturing Report Dashboard at http://{HOST}:{PORT}/report/manufacturing_report.html")
+    print(f"Serving CT In-Process Manufacturing Dashboard at http://{HOST}:{PORT}/report/manufacturing_report.html")
     print("Use Ctrl+C to stop the server.")
     server.serve_forever()
 

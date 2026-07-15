@@ -1017,9 +1017,7 @@
         <select id="batchSelect"></select>
       </label>
       <div class="toolbar-actions">
-        <button class="refresh-button" id="refreshReportButton" type="button">Refresh Data</button>
         <button class="print-button" type="button" onclick="window.print()">Print / PDF</button>
-        <span class="refresh-status" id="refreshReportStatus" aria-live="polite"></span>
       </div>
     </div>
 
@@ -1286,7 +1284,7 @@
       [els.batch, els.liveSd, els.viabilitySd, els.qc4Metric, els.qc5Metric, els.qc4Sd, els.qc5Sd].forEach(control => {
         control.addEventListener("change", render);
       });
-      els.refreshReportButton.addEventListener("click", refreshReportFromSpreadsheet);
+      if (els.refreshReportButton) els.refreshReportButton.addEventListener("click", refreshReportFromSpreadsheet);
 
       document.getElementById("sourceWorkbook").textContent = DATA.sourceWorkbookName || DATA.sourceWorkbook;
       document.getElementById("generatedAt").textContent = DATA.generatedAt;

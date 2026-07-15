@@ -1,0 +1,31 @@
+CT In-Process Manufacturing Dashboard User Guide
+
+Purpose
+
+This dashboard summarizes current and historical CT manufacturing batch data from the source Excel workbook. It is intended to help users review live cell concentration, viability, QC-4 flow, QC-5 flow, specifications, and historical range signals for a selected batch. It is not intended for batch release.
+
+Main Controls
+
+- Construct: Selects the construct, such as CD19 or CD19x22.
+- Project: Shows only projects associated with the selected construct.
+- Batch of Interest: Selects the batch to highlight across the dashboard.
+- Print / PDF: Opens the browser print workflow for PDF output.
+  - To print, ensure the dashboard is in full view mode.
+  - In the top right corner of the window next to "Share", click "Open" -> "Open in app".
+  - The Print / PDF button now works in this viewer.
+
+Graph Controls
+
+-Measure: Selects between CD3+, CD4+, and CD8+ cell target results
+-SD Range: Selects between +/-1 SD, +/-2 SD, and +/-3 SD
+
+Status Strip
+
+- Run Status: Shows whether the selected batch appears complete based on Date of Manufacture.
+- Specification Status: Shows whether the selected batch meets the tracked specification checks.
+- Historical Range: Shows whether the selected batch has any points outside the +/- 3SD historical range. If outside range, the affected graph names are listed.
+- Number of 3SD Excursions: Counts selected-batch points outside the +/- 3SD historical range.
+
+Notes
+
+- The SharePoint HTML file is a static snapshot. It updates only after the dashboard is refreshed locally and the regenerated SharePoint file is uploaded/replaced in SharePoint.

@@ -12,6 +12,7 @@ PROJECT_DIR = Path(__file__).resolve().parents[1]
 WORKBOOK = PROJECT_DIR / "Input" / "Codex Manufacturing Data v1.2.xlsx"
 LOGO = PROJECT_DIR / "assets" / "Logo.jpg"
 OUTPUT = PROJECT_DIR / "report" / "manufacturing_report.html"
+SHAREPOINT_OUTPUT = PROJECT_DIR / "sharepoint" / "manufacturing_report_sharepoint.html"
 
 
 PROJECTS = ["Z0121-02", "Z0121-03", "P1114-01", "P1114-02"]
@@ -31,30 +32,6 @@ def clean_value(value):
     if hasattr(value, "item"):
         value = value.item()
     return value
-
-
-def load_input_batch() -> str:
-    try:
-        input_df = pd.read_excel(WORKBOOK, sheet_name="input")
-    except ValueError:
-        return ""
-
-    if input_df.empty:
-        return ""
-
-    preferred_columns = [
-        column
-        for column in input_df.columns
-        if "batch" in str(column).lower() and "interest" in str(column).lower()
-    ]
-    columns = preferred_columns or list(input_df.columns)
-
-    for column in columns:
-        for value in input_df[column].dropna():
-            text = str(value).strip()
-            if text:
-                return text
-    return ""
 
 
 def load_specs() -> list[dict]:
@@ -133,6 +110,44 @@ def display_value(value) -> str | None:
     return str(value)
 
 
+def parse_dom_date(value) -> pd.Timestamp:
+    if pd.isna(value):
+        return pd.NaT
+    if isinstance(value, pd.Timestamp):
+        return value
+    if hasattr(value, "item"):
+        value = value.item()
+    if isinstance(value, datetime):
+        return pd.Timestamp(value)
+
+    text = str(value).strip()
+    if not text:
+        return pd.NaT
+
+    for date_format in ("%d%b%y", "%d%b%Y", "%d %b %Y", "%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y"):
+        parsed = pd.to_datetime(text, format=date_format, errors="coerce")
+        if not pd.isna(parsed):
+            return parsed
+    return pd.to_datetime(text, errors="coerce")
+
+
+def most_recent_dom_batch(long_df: pd.DataFrame) -> str:
+    dom_rows = long_df[
+        long_df["Measurement Type"].astype(str).str.strip().str.casefold().eq("date of manufacture")
+        & long_df["Value"].notna()
+    ].copy()
+    if dom_rows.empty:
+        return ""
+
+    dom_rows["ParsedDomDate"] = dom_rows["Value"].apply(parse_dom_date)
+    dom_rows = dom_rows.dropna(subset=["ParsedDomDate"])
+    if dom_rows.empty:
+        return ""
+
+    latest = dom_rows.sort_values(["ParsedDomDate", "Batch"]).iloc[-1]
+    return str(latest["Batch"]).strip()
+
+
 def build_payload() -> dict:
     long_df = pd.read_excel(WORKBOOK, sheet_name="Long Format")
     required = ["Batch", "Day", "Category", "Measurement Type", "Value", "Construct"]
@@ -152,6 +167,7 @@ def build_payload() -> dict:
     long_df = long_df[~long_df["Measurement Type"].astype(str).str.contains("QC-12", regex=False, na=False)]
     long_df = long_df[long_df["Project"].isin(PROJECTS)]
     long_df = long_df[long_df["Construct"].isin(CONSTRUCTS)]
+    default_batch = most_recent_dom_batch(long_df)
 
     rows = []
     for row in long_df.to_dict("records"):
@@ -181,9 +197,8 @@ def build_payload() -> dict:
         flow_metrics[phase] = metrics
 
     return {
-        "sourceWorkbook": str(WORKBOOK),
-        "inputSheet": "input",
-        "inputBatch": load_input_batch(),
+        "sourceWorkbook": WORKBOOK.name,
+        "defaultBatch": default_batch,
         "generatedAt": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "projects": PROJECTS,
         "constructs": CONSTRUCTS,
@@ -246,9 +261,13 @@ HTML_TEMPLATE = r"""<!doctype html>
       grid-template-columns: 1fr auto;
       gap: 28px;
       align-items: start;
-      padding: 12px 0 34px;
-      border-bottom: 4px solid var(--cu-black);
+      margin-bottom: 18px;
+      padding: 18px 18px 24px;
+      border: 1px solid var(--line);
+      border-bottom: 5px solid var(--cu-gold);
+      border-radius: 8px;
       background: #ffffff;
+      box-shadow: var(--box-shadow);
     }
 
     h1 {
@@ -433,6 +452,22 @@ HTML_TEMPLATE = r"""<!doctype html>
       font-size: 11px;
       font-weight: 650;
       line-height: 1.25;
+    }
+
+    .historical-status-head {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+
+    .historical-status-head .status-label {
+      flex: 0 0 auto;
+    }
+
+    .historical-status-head .status-note {
+      flex: 1 1 auto;
+      margin-top: 0;
+      text-align: left;
     }
 
     .summary {
@@ -928,8 +963,10 @@ HTML_TEMPLATE = r"""<!doctype html>
       header {
         break-inside: avoid;
         gap: 18px;
-        padding: 0 0 8px;
-        border-bottom-width: 3px;
+        margin-bottom: 8px;
+        padding: 8px 10px 10px;
+        border-bottom-width: 4px;
+        box-shadow: none;
       }
 
       h1 {
@@ -1207,9 +1244,11 @@ HTML_TEMPLATE = r"""<!doctype html>
         <span class="status-value neutral" id="statusSpec">-</span>
       </div>
       <div class="status-item">
-        <span class="status-label">Historical Range</span>
+        <div class="historical-status-head">
+          <span class="status-label">Historical Range</span>
+          <div class="status-note" id="statusHistoricalNote">Historical Range limits are +/- 3SD</div>
+        </div>
         <span class="status-value neutral" id="statusHistorical">-</span>
-        <div class="status-note">Historical Range limits are +/- 3SD</div>
       </div>
       <div class="status-item">
         <span class="status-label">Number of 3SD Excursions</span>
@@ -1221,7 +1260,7 @@ HTML_TEMPLATE = r"""<!doctype html>
       <div class="kpi">
         <div class="kpi-title">Selected Batch</div>
         <div class="kpi-value" id="kpiBatch">-</div>
-        <div class="kpi-foot" id="kpiBatchFoot">From input sheet</div>
+        <div class="kpi-foot" id="kpiBatchFoot">Defaulted to most recent Date of Manufacture</div>
       </div>
       <div class="kpi">
         <div class="kpi-title">Historical Batches</div>
@@ -1389,6 +1428,7 @@ HTML_TEMPLATE = r"""<!doctype html>
       statusRun: document.getElementById("statusRun"),
       statusSpec: document.getElementById("statusSpec"),
       statusHistorical: document.getElementById("statusHistorical"),
+      statusHistoricalNote: document.getElementById("statusHistoricalNote"),
       statusExcursions: document.getElementById("statusExcursions"),
       printRunSummary: document.getElementById("printRunSummary"),
       refreshReportButton: document.getElementById("refreshReportButton"),
@@ -1439,10 +1479,10 @@ HTML_TEMPLATE = r"""<!doctype html>
     function setupControls() {
       DATA.constructs.forEach(construct => option(els.construct, construct));
 
-      const inputMatch = DATA.inputBatch ? DATA.rows.find(row => row.batch === DATA.inputBatch) : null;
-      if (inputMatch) els.construct.value = inputMatch.construct;
-      refreshProjectOptions(inputMatch?.project);
-      refreshBatchOptions(inputMatch?.batch || DATA.inputBatch);
+      const defaultMatch = DATA.defaultBatch ? DATA.rows.find(row => row.batch === DATA.defaultBatch) : null;
+      if (defaultMatch) els.construct.value = defaultMatch.construct;
+      refreshProjectOptions(defaultMatch?.project);
+      refreshBatchOptions(defaultMatch?.batch || DATA.defaultBatch);
       refreshFlowMetricOptions();
 
       els.construct.addEventListener("change", () => {
@@ -2162,6 +2202,11 @@ HTML_TEMPLATE = r"""<!doctype html>
       el.className = `status-value ${state}`;
     }
 
+    function setStatusNote(el, text) {
+      if (!el) return;
+      el.textContent = text;
+    }
+
     function selectedLineExcursions(category) {
       const { selectedPoints, stats } = lineData(category);
       const statsByDay = new Map(
@@ -2183,12 +2228,28 @@ HTML_TEMPLATE = r"""<!doctype html>
     }
 
     function selectedExcursions() {
-      return [
-        ...selectedLineExcursions("Live Cell Concentration"),
-        ...selectedLineExcursions("Viabilities"),
-        ...selectedFlowExcursions(els.qc4Metric.value),
-        ...selectedFlowExcursions(els.qc5Metric.value)
-      ];
+      return selectedExcursionDetails().flatMap(detail => detail.items);
+    }
+
+    function selectedExcursionDetails() {
+      const details = [];
+      const live = selectedLineExcursions("Live Cell Concentration");
+      const viability = selectedLineExcursions("Viabilities");
+      const qc4 = selectedFlowExcursions(els.qc4Metric.value);
+      const qc5 = selectedFlowExcursions(els.qc5Metric.value);
+      if (live.length) details.push({ title: "Live Cell Concentration vs Day", items: live });
+      if (viability.length) details.push({ title: "Viability vs Day", items: viability });
+      if (qc4.length) details.push({ title: "QC-4 Flow", items: qc4 });
+      if (qc5.length) details.push({ title: "QC-5 Flow", items: qc5 });
+      return details;
+    }
+
+    function excursionGraphTitles(details = selectedExcursionDetails()) {
+      return details.map(detail => detail.title).join(", ");
+    }
+
+    function excursionGraphNote(details = selectedExcursionDetails()) {
+      return details.length ? `Graphs Outside of Range: ${excursionGraphTitles(details)}` : "No graphs outside historical range";
     }
 
     function selectedSpecFailures() {
@@ -2295,7 +2356,9 @@ HTML_TEMPLATE = r"""<!doctype html>
       const qc5 = selectedFlowSummary(els.qc5Metric.value);
       const viability = selectedLineSummary("Viabilities", "percent");
       const specFailures = selected ? selectedSpecFailures() : [];
-      const excursions = selected ? selectedExcursions() : [];
+      const excursionDetails = selected ? selectedExcursionDetails() : [];
+      const excursions = excursionDetails.flatMap(detail => detail.items);
+      const excursionNote = selected ? excursionGraphNote(excursionDetails) : "Historical range limits are +/- 3SD";
 
       const items = [
         ["Construct", els.construct.value || "-", ""],
@@ -2307,7 +2370,7 @@ HTML_TEMPLATE = r"""<!doctype html>
         ["QC-5 Result", selected ? qc5.value : "-", selected ? qc5.note : ""],
         ["Viability Result", selected ? viability.value : "-", selected ? viability.note : ""],
         ["Specification Flags", specFailures.length ? `${specFailures.length} flag${specFailures.length === 1 ? "" : "s"}` : "None", "QC-5 and final live-cell checks", specFailures.length ? "warn" : ""],
-        ["Outside +/-3SD Flags", excursions.length ? `${excursions.length} flag${excursions.length === 1 ? "" : "s"}` : "None", "Historical range limits are +/- 3SD", excursions.length ? "warn" : ""]
+        ["Outside +/-3SD Flags", excursions.length ? `${excursions.length} flag${excursions.length === 1 ? "" : "s"}` : "None", excursionNote, excursions.length ? "warn" : ""]
       ];
 
       els.printRunSummary.innerHTML = items
@@ -2322,17 +2385,20 @@ HTML_TEMPLATE = r"""<!doctype html>
         setStatus(els.statusSpec, "Not Checked", "neutral");
         setStatus(els.statusHistorical, "Not Checked", "neutral");
         setStatus(els.statusExcursions, "Not Checked", "neutral");
+        setStatusNote(els.statusHistoricalNote, "Historical Range limits are +/- 3SD");
         return;
       }
 
       const specFailures = selectedSpecFailures();
-      const excursions = selectedExcursions();
+      const excursionDetails = selectedExcursionDetails();
+      const excursions = excursionDetails.flatMap(detail => detail.items);
       const isCompleted = selectedAdditionalHasValue("Date of Manufacture");
 
       setStatus(els.statusRun, isCompleted ? "Completed" : "Ongoing", isCompleted ? "good" : "neutral");
       setStatus(els.statusSpec, specFailures.length ? "Spec Review" : "Meets Specs", specFailures.length ? "warn" : "good");
       setStatus(els.statusHistorical, excursions.length ? "Outside Range" : "Within Range", excursions.length ? "warn" : "good");
       setStatus(els.statusExcursions, excursions.length ? `${excursions.length} Found` : "None", excursions.length ? "warn" : "good");
+      setStatusNote(els.statusHistoricalNote, excursions.length ? excursionGraphNote(excursionDetails) : "Historical Range limits are +/- 3SD");
     }
 
     function updateKpis() {
@@ -2340,7 +2406,7 @@ HTML_TEMPLATE = r"""<!doctype html>
       const rows = currentRows();
       const historicalBatches = new Set(rows.filter(row => !selected || row.batch !== selected).map(row => row.batch));
       document.getElementById("kpiBatch").textContent = selected || "None";
-      document.getElementById("kpiBatchFoot").textContent = selected === DATA.inputBatch ? "From input sheet" : "Changed in report controls";
+      document.getElementById("kpiBatchFoot").textContent = selected === DATA.defaultBatch ? "Most recent Date of Manufacture" : "Changed in report controls";
       document.getElementById("kpiHistorical").textContent = fmtInt.format(historicalBatches.size);
       document.getElementById("kpiLive").textContent = selectedAdditionalValue("Date of Manufacture", "Ongoing");
       document.getElementById("kpiViability").textContent = selectedAdditionalValue("Dose Level", "Not Confirmed");
@@ -2367,13 +2433,44 @@ HTML_TEMPLATE = r"""<!doctype html>
 """
 
 
+def build_sharepoint_html(html: str) -> str:
+    """Create a static copy suitable for SharePoint sharing."""
+    sharepoint_html = html.replace(
+        '        <button class="refresh-button" id="refreshReportButton" type="button">Refresh Data</button>\n',
+        "",
+    )
+    sharepoint_html = sharepoint_html.replace(
+        '        <span class="refresh-status" id="refreshReportStatus" aria-live="polite"></span>\n',
+        "",
+    )
+    sharepoint_html = sharepoint_html.replace(
+        '      refreshReportButton: document.getElementById("refreshReportButton"),\n'
+        '      refreshReportStatus: document.getElementById("refreshReportStatus")\n',
+        '      refreshReportButton: document.getElementById("refreshReportButton"),\n'
+        '      refreshReportStatus: document.getElementById("refreshReportStatus")\n',
+    )
+    sharepoint_html = sharepoint_html.replace(
+        '      els.refreshReportButton.addEventListener("click", refreshReportFromSpreadsheet);\n\n',
+        '      if (els.refreshReportButton) els.refreshReportButton.addEventListener("click", refreshReportFromSpreadsheet);\n\n',
+    )
+    return sharepoint_html
+
+
 def main() -> None:
     payload = build_payload()
     html = HTML_TEMPLATE.replace("__DATA_JSON__", json.dumps(payload, ensure_ascii=False, allow_nan=False))
     html = html.replace("__LOGO_DATA_URL__", load_logo_data_url())
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     OUTPUT.write_text(html, encoding="utf-8")
-    print(json.dumps({"output": str(OUTPUT), "rows": len(payload["rows"]), "inputBatch": payload["inputBatch"]}, indent=2))
+    sharepoint_html = build_sharepoint_html(html)
+    SHAREPOINT_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+    SHAREPOINT_OUTPUT.write_text(sharepoint_html, encoding="utf-8")
+    print(json.dumps({
+        "output": str(OUTPUT),
+        "sharepointOutput": str(SHAREPOINT_OUTPUT),
+        "rows": len(payload["rows"]),
+        "defaultBatch": payload["defaultBatch"],
+    }, indent=2))
 
 
 if __name__ == "__main__":
